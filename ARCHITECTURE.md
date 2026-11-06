@@ -1,0 +1,110 @@
+# CCurate source layout
+
+Implementation lives in separately compiled C translation units. Headers declare
+interfaces and types; they have include guards and compile on their own. CCurate
+does not include `.c` files or implementation fragments such as `.inc` files.
+CMake lists each application source explicitly. Bundled Raven remains an
+unmodified third-party dependency.
+
+## Native interface
+
+The public entry point is `gui_main(Catalog *, int)` in
+[include/gui.h](include/gui.h). It does not expose Raven or font-selection types
+to the core. The GUI implementation and its private interfaces live in `src/gui/`.
+
+| Implementation | Interface | Responsibility |
+| --- | --- | --- |
+| `gui.c` | `include/gui.h` | Application lifecycle, settings restoration, frame loop, shutdown and Raven callback adapters |
+| `gui_controller.c` | `gui_controller.h` | Text commands, notices, prompts and saving view preferences |
+| `gui_browser.c` | `gui_browser.h` | Paged file lists, selection, navigation and asynchronous view results |
+| `gui_navigation.c` | `gui_navigation.h` | Bounded per-pane location bookmarks and path-based parent focus |
+| `gui_open.c` | `gui_open.h` | Selected-file resolution, desktop-launch status and activity messages |
+| `gui_input.c` | `gui_input.h` | Keyboard and pointer dispatch for the workspace |
+| `gui_jobs.c` | `gui_jobs.h` | Scan/copy operation workers and preview requests, cancellation and results |
+| `gui_layout.c` | `gui_layout.h` | Panel geometry, hit testing and split proportions |
+| `gui_scroll.c` | `gui_scroll.h` | Shared draggable scrollbar geometry, global file-list seeking and cached text viewport layout |
+| `gui_render.c` | `gui_render.h` | Canvas rendering and shared text drawing helpers |
+| `gui_menu.c` | `gui_menu.h` | Action definitions, footer menus and menu navigation |
+| `gui_activity.c` | `gui_activity.h` | Activity log display, scrolling and severity choices |
+| `gui_choices.c` | `gui_choices.h` | Log-level, color-scheme and sort-order popup controls |
+| `gui_fonts.c` | `gui_fonts.h` | Installed-font chooser, asynchronous font results and font resource lifetime |
+| `gui_theme.c` | `gui_theme.h` | Private palette data, theme application and the file-status legend |
+
+`gui_types.h` forward-declares `Gui` and `GuiPane` for component APIs.
+`gui_state.h` defines their private state. Module headers expose only the
+operations used by other components; local implementation helpers stay `static`.
+Palette and menu tables live in their owning `.c` files.
+
+### State and thread ownership
+
+`gui_main` owns one `Gui` context for the duration of the application. Components
+receive that context explicitly. There is no exported mutable GUI singleton.
+Raven callbacks receive the context through their user-data argument; the same
+rule applies to operation and preview worker entry points.
+
+Widget operations, rendering, navigation and UI settings belong to the main
+thread. Filesystem work and decoding remain in workers. The preview request/result
+channel uses its existing mutex, condition variable and cancellation atomic.
+Operation completion is communicated through atomics, and the main thread joins
+the finished worker before reusing its arguments. Shutdown joins workers before
+releasing their context. Workers never call Raven.
+
+Both the action menu and the keyboard route through the same command and input
+interfaces. Paint modules consume the same live state and background query
+results; they do not start synchronous scans or decode files while drawing.
+
+## Core and services
+
+| File | Responsibility |
+| --- | --- |
+| `src/main.c` | Command-line parsing and selection of GUI, CLI, preview-worker or desktop-launcher mode |
+| `src/catalog.c` | Source inventory, versions, catalog queries and JSONL import/export |
+| `src/operations.c` | Copy/reuse, destination moves, recovery, audit and reconciliation |
+| `src/preview.c` | Format decoders and the isolated preview subprocess protocol |
+| `src/preview_jpeg.c` | Direct libjpeg scanline thumbnails and bounded EXIF orientation parsing |
+| `src/desktop_open.c` | Asynchronous GIO launcher subprocess, desktop-user privilege drop and result pipe |
+| `src/view.c` | Background view queries, saved preferences and storage metrics |
+| `src/activity.c` | Bounded recent log, asynchronous file writer and log recovery |
+| `src/font_catalog.c` | Fontconfig discovery and asynchronous font-file reads |
+| `src/util.c` | Hashing, filesystem/path helpers and formatting |
+| `include/curator.h` | Shared core types and service interfaces |
+| `include/font_catalog.h` | Font service interface |
+
+`CCURATE_GUI=OFF` excludes all GUI modules and the Fontconfig/GIO services.
+`CCURATE_MEDIA=OFF` excludes image/PDF/audio/video decoder dependencies. Neither
+configuration depends on private GUI headers.
+
+### Navigation and external application boundaries
+
+Navigation bookmarks hold relative paths rather than only row numbers. The view
+worker resolves the selection against the same filters and ordering as its page
+query. The common source/name-sort path counts preceding indexed entries without
+joining all versions; filtered and other column sorts use the listing order.
+No directory search is performed on the Raven thread. Bookmarks are bounded and
+owned/freed with their pane.
+
+Sorting uses whitelisted SQL expressions and a deterministic filename tie-breaker.
+It runs before LIMIT/OFFSET in the view worker, including destination listings,
+retained history and live unverified observations. The destination cache joins
+object status for ordering. Each pane saves its own column, direction and date
+choice. Scrollbar dragging translates a global row position into a requested
+page; only that page's rows reach the UI. Paint and hit testing share geometry,
+and text panes cache their line boundaries and measured width until text or font
+changes. No scan, hash, decoder or directory query runs in scrollbar handlers.
+
+The UI starts `--open-worker` with `posix_spawn`, a read-only root descriptor and
+a private result pipe. The worker resolves a regular file beneath that root,
+closes the source descriptor, drops root privileges when applicable, converts
+the absolute filename to a URI, and waits for GIO's asynchronous launch result.
+The frame loop polls the result without blocking. Only the launcher is timed out
+or stopped on shutdown; a launched application is independent of CCurate.
+External opening is an explicit action, separate from the resource-limited
+preview worker. The external application retains normal filesystem permissions
+and can modify the original file. No shell command is constructed from a filename.
+
+## Validation
+
+The application build enables `-Wmissing-prototypes` and `-Wstrict-prototypes`
+alongside the existing warnings. Validation checks individual header inclusion,
+full and core-only builds, existing integration tests and native GUI regressions.
+See [TESTING.md](TESTING.md) for executed checks and environmental limits.

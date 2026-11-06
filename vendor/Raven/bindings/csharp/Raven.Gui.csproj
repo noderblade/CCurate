@@ -1,0 +1,60 @@
+<!--
+  The NuGet package of Raven for C#: Raven.Gui.
+
+    dotnet pack bindings/csharp/Raven.Gui.csproj -c Release -o dist
+
+  bindings\package.bat does all of this. By hand: put the shared library of
+  each platform in native/ first:
+
+    native/win-x64/raven.dll
+    native/linux-x64/libraven.so
+    native/osx/libraven.dylib       (universal: arm64 + x86_64)
+
+  A platform whose folder is empty is simply left out of the package.
+  The package holds Raven.dll (the bindings, netstandard2.0) and the native
+  libraries under runtimes/<rid>/native/ (copied beside the program by the
+  .NET SDK).
+-->
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>netstandard2.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <AssemblyName>Raven</AssemblyName>
+    <RootNamespace>Raven</RootNamespace>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <EnableDefaultNoneItems>false</EnableDefaultNoneItems>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <!-- the generated bindings document the API, not every parameter -->
+    <NoWarn>$(NoWarn);CS1591;CS1573;CS1572;CS1574;CS1587;NU5100</NoWarn>
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+
+    <PackageId>Raven.Gui</PackageId>
+    <Version>0.2.1</Version>
+    <Authors>Oscar Soirey</Authors>
+    <Copyright>Copyright 2026 Oscar Soirey</Copyright>
+    <Description>C# bindings for Raven, a lightweight, multithreaded GUI library in C for editors and tools. The native library is included for Windows x64, Linux x64 and macOS (arm64 and x64).</Description>
+    <PackageTags>gui;ui;vulkan;widgets;editor;native</PackageTags>
+    <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
+    <PackageProjectUrl>https://github.com/oscar-soirey/Raven</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/oscar-soirey/Raven</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="Raven.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="nuget/README.md" Pack="true" PackagePath="/" />
+
+    <!-- the native library of each platform -->
+    <None Include="native/win-x64/raven.dll" Condition="Exists('native/win-x64/raven.dll')" Pack="true" PackagePath="runtimes/win-x64/native/" />
+    <None Include="native/linux-x64/libraven.so" Condition="Exists('native/linux-x64/libraven.so')" Pack="true" PackagePath="runtimes/linux-x64/native/" />
+    <None Include="native/osx/libraven.dylib" Condition="Exists('native/osx/libraven.dylib')" Pack="true" PackagePath="runtimes/osx/native/" />
+  </ItemGroup>
+
+</Project>

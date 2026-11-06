@@ -1,0 +1,3 @@
+# filled by the release workflow, see Raven.Gui.csproj
+*
+!.gitignore
