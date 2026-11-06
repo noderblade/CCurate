@@ -8,13 +8,14 @@ unmodified third-party dependency.
 
 ## Native interface
 
-The public entry point is `gui_main(Catalog *, int)` in
-[include/gui.h](include/gui.h). It does not expose Raven or font-selection types
+The public entry points are `gui_main(Catalog *, int)` and `gui_choose_roots`
+in [include/gui.h](include/gui.h). They do not expose Raven or font-selection types
 to the core. The GUI implementation and its private interfaces live in `src/gui/`.
 
 | Implementation | Interface | Responsibility |
 | --- | --- | --- |
 | `gui.c` | `include/gui.h` | Application lifecycle, settings restoration, frame loop, shutdown and Raven callback adapters |
+| `gui_startup.c` | `include/gui.h` | Pre-session root selection, graphical folder browsing and validation |
 | `gui_controller.c` | `gui_controller.h` | Text commands, notices, prompts and saving view preferences |
 | `gui_browser.c` | `gui_browser.h` | Paged file lists, selection, navigation and asynchronous view results |
 | `gui_navigation.c` | `gui_navigation.h` | Bounded per-pane location bookmarks and path-based parent focus |
@@ -36,6 +37,16 @@ operations used by other components; local implementation helpers stay `static`.
 Palette and menu tables live in their owning `.c` files.
 
 ### State and thread ownership
+
+When GUI arguments are incomplete, `main` runs `gui_choose_roots` before opening
+a catalog. Its local `Startup` context owns widget callbacks and updates the
+caller's allocated root strings. It uses Raven's built-in modal folder browser,
+which receives keyboard events independently of the startup shortcuts. Cancelling
+returns without opening a catalog. Acceptance canonicalizes and validates the
+roots, then shuts down the chooser's Raven instance. `main` opens the catalog
+and `gui_main` initializes the workspace normally. Catalog failures reopen the
+chooser with the selected roots and the error. The chooser has no scan workers
+or database state; explicit two-path and CLI invocations retain their direct flow.
 
 `gui_main` owns one `Gui` context for the duration of the application. Components
 receive that context explicitly. There is no exported mutable GUI singleton.

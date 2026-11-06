@@ -79,6 +79,49 @@ file and drops privileges to `SUDO_UID`/`SUDO_GID`, or UID/GID 65534. If the sys
 refuses the privilege drop, the preview reports that condition instead of running
 the decoder as root. The core application remains usable.
 
+## Choosing folders at startup
+
+Run `./build/ccurate` without arguments to open **Choose your folders**. Click
+**Browse source** to select the original directory and **Browse destination** to
+select the directory for curated files and session state. The built-in folder
+browser shows hidden directories and does not require an external desktop
+dialog helper. Browse into a directory and confirm with **Select folder**; you
+can also select a directory row and confirm it. The selected paths are displayed
+in read-only fields, with full-path tooltips.
+
+Both mouse and keyboard work throughout:
+
+| Key | Startup action |
+| --- | --- |
+| `Alt+S` / `Alt+D` | Browse source / destination |
+| `Tab` / `Shift+Tab` | Move focus between controls |
+| Arrows, `Home`, `End` | Navigate the folder list |
+| `Enter` on a folder / `Backspace` | Enter the folder / go to its parent |
+| `Shift+Tab` from the folder list, then `Enter` | Focus and activate Select folder |
+| `Ctrl+Enter` | Start curation or open the archive after choosing roots |
+| `Esc` | Cancel the folder browser, or exit from the startup window |
+
+The startup window also accepts `F10` to exit. Cancelling before starting does
+not create a session or modify either directory. Identical source/destination
+paths and a destination that contains the source are rejected before session
+creation. A destination inside the source remains supported: scanning excludes
+that subtree. If opening the session fails, the chooser shows the error and
+keeps the choices so you can correct them or cancel. An attempted session open
+can create session files before a later initialization error.
+
+| Invocation | Behavior |
+| --- | --- |
+| `ccurate` | Choose both directories |
+| `ccurate /mnt/source` | Prefill source and choose destination |
+| `ccurate /mnt/source /mnt/destination` | Open directly, as before |
+| `ccurate --browse` | Choose a destination archive without requiring the source |
+| `ccurate --browse /mnt/destination` | Open that archive directly |
+
+Starting curation rescans the source in the background. Opening a destination
+archive with `--browse` uses retained history without a source scan. CLI commands
+still require explicit arguments; a core-only build cannot show a folder chooser
+and reports an incomplete invocation instead.
+
 ## Status bar and scan progress
 
 The top bar shows free destination space and session file sizes, sampled about
@@ -572,4 +615,5 @@ split into independently compiled `.c` modules and `.h` interfaces under
 [ARCHITECTURE.md](ARCHITECTURE.md) for the module map and state ownership.
 The pinned Raven revision is recorded in [THIRD_PARTY.md](THIRD_PARTY.md).
 
-Future project contributions follow the English artifact policy in [AGENTS.md](AGENTS.md).
+Application text, documentation and code comments are in English. Original user
+filenames and metadata retain their spelling.

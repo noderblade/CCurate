@@ -39,6 +39,7 @@ if(CCURATE_GUI)
  target_sources(ccurate PRIVATE
    src/desktop_open.c
    src/gui/gui.c
+   src/gui/gui_startup.c
    src/gui/gui_controller.c
    src/gui/gui_browser.c
    src/gui/gui_navigation.c

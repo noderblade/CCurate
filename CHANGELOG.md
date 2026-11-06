@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+- Browse for source and destination folders when GUI arguments are omitted,
+  with mouse and keyboard controls, hidden directories and validation before
+  session creation. A single source argument prefills the source; bare `--browse`
+  selects an existing destination archive.
+- Keep selected roots and show session-opening errors in the startup chooser.
+- Document the scope of a native Windows port and GitHub Actions build automation.
+
 ## 0.1.0 - 2026-11-06
 
 Initial CCurate release.

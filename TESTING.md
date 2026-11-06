@@ -59,7 +59,9 @@ python3 tests/sorting.py build/ccurate build/sortcheck
 
 ## Native interface
 
-All six real-window suites pass under Xvfb with Mesa software Vulkan:
+All seven real-window suites pass under Xvfb with Mesa software Vulkan. The
+startup suite and both core integration configurations were run for the folder
+chooser change; the other GUI suites retain their earlier validation results.
 
 | Suite | Coverage |
 | --- | --- |
@@ -69,6 +71,7 @@ All six real-window suites pass under Xvfb with Mesa software Vulkan:
 | `gui_fonts.py` | Font chooser, keyboard/mouse controls, TTF/OTF/TTC faces, filtering, cancellation and persistence |
 | `gui_navigation_open.py` | Parent focus and scroll restoration across pages; double-click, keyboard and menu application opening |
 | `gui_scroll_sort.py` | Clickable sort headers, keyboard sorting, per-pane persistence, global list dragging across 2,205 rows, horizontal tables and preview/details/log scrollbars |
+| `gui_startup.py` | No-argument folder selection without typing paths, keyboard and mouse browsing, hidden roots, cancellation, equal-root rejection, session resume, offline browsing and session-open errors |
 
 Install Xvfb, xdotool, Python Pillow and a working Vulkan ICD for these optional
 checks. Each script manages its own disposable X server and fixture directories.
@@ -80,7 +83,13 @@ python3 tests/gui_activity.py build/ccurate
 python3 tests/gui_fonts.py build/ccurate
 python3 tests/gui_navigation_open.py build/ccurate
 python3 tests/gui_scroll_sort.py build/ccurate
+python3 tests/gui_startup.py build/ccurate
 ```
+
+The startup suite checks that cancelling or rejecting equal roots creates no
+session and that starting with chosen roots reaches the workspace and completes
+the background scan. It also exercises Raven shutdown/reinitialization between
+the chooser and workspace, including reopening the chooser after a lock error.
 
 `tests/desktop_open.py` also passes against actual GIO default associations
 pointing to an isolated recording application. It verifies exact filenames,

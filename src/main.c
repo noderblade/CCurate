@@ -19,8 +19,9 @@ static void stop(int sig)
 static void usage(void)
 {
     puts("CCurate 0.1.0\n\n"
-         "GUI:     ccurate SOURCE DESTINATION\n"
-         "Browse:  ccurate --browse DESTINATION\n"
+         "GUI:     ccurate [SOURCE [DESTINATION]]\n"
+         "         Missing folders are chosen in a graphical browser.\n"
+         "Browse:  ccurate --browse [DESTINATION]\n"
          "CLI:     ccurate --cli SOURCE DESTINATION COMMAND [ARG...]\n"
          "Commands:\n"
          "  scan [--full]                 refresh live source (SHA-512)\n"
@@ -50,15 +51,16 @@ int main(int argc, char **argv)
             return 2;
         return preview_worker_main(atoi(argv[2]), atoi(argv[3]), atoi(argv[4]));
     }
-    if (argc < 2 || !strcmp(argv[1], "--help")) {
+    if (argc > 1 && !strcmp(argv[1], "--help")) {
         usage();
-        return argc < 2 ? 2 : 0;
+        return 0;
     }
-    if (!strcmp(argv[1], "--version")) {
+    if (argc > 1 && !strcmp(argv[1], "--version")) {
         puts("CCurate 0.1.0 / Raven ede33eb15f986766f063aadb109f3c379cd8f6ea");
         return 0;
     }
-    int cli = !strcmp(argv[1], "--cli"), browse = !strcmp(argv[1], "--browse");
+    int cli = argc > 1 && !strcmp(argv[1], "--cli"),
+        browse = argc > 1 && !strcmp(argv[1], "--browse"), choose = 0;
     const char *src = NULL, *dst = NULL, *cmd = NULL;
     int arg = 0;
     if (cli) {
@@ -72,25 +74,63 @@ int main(int argc, char **argv)
         arg = 5;
         browse = !src;
     } else if (browse) {
-        if (argc != 3) {
+        if (argc > 3) {
             usage();
             return 2;
         }
-        dst = argv[2];
+        dst = argc == 3 ? argv[2] : NULL;
+        choose = !dst;
     } else {
-        if (argc != 3) {
+        if (argc > 3 || (argc > 1 && argv[1][0] == '-')) {
             usage();
             return 2;
         }
-        src = argv[1];
-        dst = argv[2];
+        src = argc > 1 ? argv[1] : NULL;
+        dst = argc > 2 ? argv[2] : NULL;
+        choose = !dst;
     }
+#ifdef CCURATE_GUI
+    char *selected_source = choose && src ? xstrdup(src) : NULL;
+    char *selected_destination = NULL, *startup_error = NULL;
+#else
+    if (choose) {
+        usage();
+        fputs("Folder selection requires a build with CCURATE_GUI=ON.\n", stderr);
+        return 2;
+    }
+#endif
     Catalog c;
-    if (catalog_open(&c, src, dst, browse)) {
+    for (;;) {
+#ifdef CCURATE_GUI
+        if (choose) {
+            int result =
+                gui_choose_roots(&selected_source, &selected_destination, browse, startup_error);
+            free(startup_error);
+            startup_error = NULL;
+            if (result <= 0) {
+                free(selected_source);
+                free(selected_destination);
+                return result < 0 ? 1 : 0;
+            }
+            src = selected_source;
+            dst = selected_destination;
+        }
+#endif
+        if (!catalog_open(&c, src, dst, browse))
+            break;
         fprintf(stderr, "%s\n", c.error);
+#ifdef CCURATE_GUI
+        if (choose)
+            startup_error = xstrdup(c.error);
+#endif
         catalog_close(&c);
-        return 1;
+        if (!choose)
+            return 1;
     }
+#ifdef CCURATE_GUI
+    free(selected_source);
+    free(selected_destination);
+#endif
     active = &c;
     signal(SIGINT, stop);
     signal(SIGTERM, stop);

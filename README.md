@@ -173,8 +173,15 @@ ordinary mounted paths, without pool-management commands or a ZFS-specific API.
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j
 ctest --test-dir build --output-on-failure
-./build/ccurate /mnt/source /mnt/destination
+./build/ccurate
 ```
+
+Starting without arguments opens a folder chooser. Use **Browse source** and
+**Browse destination** to select directories with the mouse or keyboard; no path
+typing is required. Hidden directories are shown. Start curation opens or resumes
+the session; Cancel exits without creating one. You can still launch directly
+with `./build/ccurate /mnt/source /mnt/destination`, or supply only the source and
+choose the destination interactively.
 
 Both directories must already exist. CCurate creates its session files on the
 destination; it does not partition or format drives. Root execution is supported
@@ -184,6 +191,11 @@ your desktop user, including when CCurate itself runs through `sudo`.
 
 For dependency package examples, display backend selection and the CLI-only
 build, see the [build instructions](USER_GUIDE.md#build).
+
+Native Windows builds are not supported yet. Raven has a Windows backend, but
+CCurate's filesystem and worker services require a platform port. The
+[Windows assessment](docs/WINDOWS_PORT.md) describes the work and a proposed
+GitHub Actions build pipeline.
 
 ## Sessions and the portable index
 
@@ -207,6 +219,8 @@ To browse without the source drive:
 ```sh
 ./build/ccurate --browse /mnt/destination
 ```
+
+Omit the destination argument to choose the archive folder by browsing.
 
 The copied content and JSONL index are sufficient to rebuild the retained
 historical browser into an empty catalog. JSONL does not restore unhandled
@@ -256,5 +270,5 @@ directory to continue curation. See [archive format](FORMAT.md) and
 - [Source architecture](ARCHITECTURE.md): C modules, header interfaces and UI
   state/thread ownership.
 - [Third-party notices](THIRD_PARTY.md): bundled Raven revision and dependencies.
-- [Project conventions](AGENTS.md): naming, source organization and English
-  artifacts; original user filenames and metadata are preserved.
+- [Windows port assessment](docs/WINDOWS_PORT.md): platform dependencies, scope
+  and automated build proposal.
