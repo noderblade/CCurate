@@ -40,7 +40,9 @@
 #endif
 #endif
 
+#ifndef _WIN32
 extern char **environ;
+#endif
 void preview_free(Preview *p)
 {
     free(p->rgba);

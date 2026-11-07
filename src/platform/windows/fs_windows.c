@@ -283,6 +283,8 @@ static wchar_t *absolute_path(const char *path)
 }
 static DWORD file_access(int flags)
 {
+    if (flags & O_PATH)
+        return FILE_READ_ATTRIBUTES;
     return ((flags & O_RDWR)     ? GENERIC_READ | GENERIC_WRITE
             : (flags & O_WRONLY) ? GENERIC_WRITE
                                  : GENERIC_READ) |
@@ -523,14 +525,15 @@ int cc_win_fstatvfs(int fd, struct statvfs *fs)
     wchar_t *path = cc_win_handle_path(cc_win_handle(fd));
     if (!path)
         return -1;
-    ULARGE_INTEGER free_bytes;
-    BOOL ok = GetDiskFreeSpaceExW(path, &free_bytes, NULL, NULL);
+    ULARGE_INTEGER free_bytes, total;
+    BOOL ok = GetDiskFreeSpaceExW(path, &free_bytes, &total, NULL);
     DWORD error = GetLastError();
     free(path);
     if (!ok)
         return cc_win_errno(error);
     fs->f_frsize = 1;
     fs->f_bavail = free_bytes.QuadPart;
+    fs->f_blocks = total.QuadPart;
     return 0;
 }
 ssize_t cc_win_pread(int fd, void *buffer, size_t size, int64_t offset)
@@ -761,4 +764,54 @@ struct tm *cc_win_gmtime_r(const time_t *value, struct tm *out)
 struct tm *cc_win_localtime_r(const time_t *value, struct tm *out)
 {
     return localtime_s(out, value) ? NULL : out;
+}
+ssize_t cc_win_getline(char **line, size_t *capacity, FILE *file)
+{
+    size_t size = 0;
+    int ch;
+    while ((ch = fgetc(file)) != EOF) {
+        if (!*line || size + 1 >= *capacity) {
+            size_t next = *line && *capacity ? *capacity * 2 : 4096;
+            if (next <= size || next > (size_t)INT64_MAX) {
+                errno = EOVERFLOW;
+                return -1;
+            }
+            char *p = realloc(*line, next);
+            if (!p) {
+                errno = ENOMEM;
+                return -1;
+            }
+            *line = p;
+            *capacity = next;
+        }
+        (*line)[size++] = (char)ch;
+        if (ch == '\n')
+            break;
+    }
+    if (!size)
+        return -1;
+    (*line)[size] = 0;
+    return (ssize_t)size;
+}
+int cc_win_validate_roots(const char *source, const char *destination, char *error, size_t size)
+{
+    char *dest = cc_win_realpath(destination, NULL),
+         *src = source ? cc_win_realpath(source, NULL) : NULL;
+    int ok = 0;
+    struct cc_win_stat a, b;
+    if (!dest || (source && !src))
+        snprintf(error, size, "Cannot resolve source/destination: %s", strerror(errno));
+    else if (cc_win_stat(dest, &b) || !S_ISDIR(b.st_mode))
+        snprintf(error, size, "Destination must be a directory.");
+    else if (source && (cc_win_stat(src, &a) || !S_ISDIR(a.st_mode)))
+        snprintf(error, size, "Source must be a directory.");
+    else if (source && a.st_dev == b.st_dev && a.st_ino == b.st_ino)
+        snprintf(error, size, "Source and destination must be different folders.");
+    else if (source && cc_win_descendant(src, dest))
+        snprintf(error, size, "Destination must not contain the source tree.");
+    else
+        ok = 1;
+    free(src);
+    free(dest);
+    return ok;
 }

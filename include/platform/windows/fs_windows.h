@@ -34,6 +34,9 @@
 #ifndef O_NOCTTY
 #define O_NOCTTY 0
 #endif
+#ifndef O_PATH
+#define O_PATH 0x800000
+#endif
 #define AT_SYMLINK_NOFOLLOW 0x100
 #define AT_EMPTY_PATH 0x1000
 #define AT_REMOVEDIR 0x200
@@ -69,7 +72,7 @@ struct statx {
     } stx_btime;
 };
 struct statvfs {
-    uint64_t f_bavail, f_frsize;
+    uint64_t f_bavail, f_frsize, f_blocks;
 };
 struct cc_win_dirent {
     char d_name[1025];
@@ -107,6 +110,8 @@ int cc_win_descendant(const char *path, const char *parent);
 char *cc_win_parent_path(const char *path);
 char *cc_win_attributes(int fd, char error[256]);
 int cc_win_content_supported(int fd, char *error, size_t size);
+ssize_t cc_win_getline(char **line, size_t *capacity, FILE *file);
+int cc_win_validate_roots(const char *source, const char *destination, char *error, size_t size);
 struct tm *cc_win_gmtime_r(const time_t *time, struct tm *out);
 struct tm *cc_win_localtime_r(const time_t *time, struct tm *out);
 
@@ -145,5 +150,6 @@ struct tm *cc_win_localtime_r(const time_t *time, struct tm *out);
 #define lseek _lseeki64
 #define gmtime_r cc_win_gmtime_r
 #define localtime_r cc_win_localtime_r
+#define getline cc_win_getline
 #endif
 #endif

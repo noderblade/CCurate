@@ -18,7 +18,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y ninja-build pkg-config libssl-dev libsqlite3-dev libarchive-dev libmagic-dev libx11-dev libvulkan-dev libfontconfig1-dev libglib2.0-dev libjpeg-dev libgdk-pixbuf-2.0-dev libpoppler-glib-dev libavformat-dev libavcodec-dev libavutil-dev libswscale-dev mesa-vulkan-drivers xvfb xdotool python3-pil python3-fonttools
+          sudo apt-get install -y ninja-build pkg-config libssl-dev libsqlite3-dev libarchive-dev libmagic-dev libx11-dev libvulkan-dev libfontconfig1-dev libglib2.0-dev libjpeg-dev libgdk-pixbuf-2.0-dev libpoppler-glib-dev libavformat-dev libavcodec-dev libavutil-dev libswscale-dev mesa-vulkan-drivers xvfb xdotool python3-pil python3-fonttools fonts-urw-base35
       - name: Build full and core configurations
         run: |
           cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
@@ -52,6 +52,7 @@ jobs:
             mingw-w64-ucrt-x86_64-ninja
             mingw-w64-ucrt-x86_64-pkgconf
             mingw-w64-ucrt-x86_64-python
+            mingw-w64-ucrt-x86_64-python-pillow
             mingw-w64-ucrt-x86_64-openssl
             mingw-w64-ucrt-x86_64-sqlite3
             mingw-w64-ucrt-x86_64-libarchive

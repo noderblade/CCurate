@@ -154,9 +154,6 @@ const char *base_name(const char *s)
 }
 int valid_relative(const char *s, int empty)
 {
-#ifdef _WIN32
-    return cc_win_valid_relative(s, empty);
-#else
     if (!s || *s == '/' || (!*s && !empty))
         return 0;
     const char *p = s;
@@ -172,7 +169,6 @@ int valid_relative(const char *s, int empty)
             return 0;
     }
     return 1;
-#endif
 }
 int descendant(const char *p, const char *root)
 {

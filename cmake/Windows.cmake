@@ -57,4 +57,18 @@ enable_testing()
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
 add_test(NAME windows_integration COMMAND ${Python3_EXECUTABLE}
  ${CMAKE_CURRENT_SOURCE_DIR}/tests/windows_integration.py $<TARGET_FILE:ccurate>)
+if(CCURATE_MEDIA)
+ add_executable(previewcheck WIN32 tests/preview_driver.c src/util.c src/activity.c src/preview.c
+  src/preview_jpeg.c src/platform/windows/preview_media_windows.c
+  src/platform/windows/main_windows.c src/platform/windows/ccurate.rc ${CCURATE_WINDOWS_FILES})
+ target_include_directories(previewcheck PRIVATE include src/platform/windows)
+ target_compile_definitions(previewcheck PRIVATE main=ccurate_main CCURATE_MEDIA=1
+  _GNU_SOURCE _FILE_OFFSET_BITS=64 _WIN32_WINNT=0x0a00 WINVER=0x0a00)
+ target_compile_options(previewcheck PRIVATE -Wall -Wextra -Wformat=2)
+ target_link_options(previewcheck PRIVATE -municode)
+ target_link_libraries(previewcheck PRIVATE OpenSSL::Crypto PkgConfig::SQLITE PkgConfig::ARCHIVE
+  PkgConfig::MAGIC PkgConfig::PREVIEW PkgConfig::JPEG Threads::Threads bcrypt advapi32 shell32 ole32)
+ add_test(NAME windows_previews COMMAND ${Python3_EXECUTABLE}
+  ${CMAKE_CURRENT_SOURCE_DIR}/tests/windows_previews.py $<TARGET_FILE:previewcheck>)
+endif()
 install(TARGETS ccurate RUNTIME DESTINATION bin)

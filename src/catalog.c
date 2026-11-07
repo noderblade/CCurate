@@ -80,6 +80,10 @@ int catalog_open(Catalog *c, const char *source, const char *destination, int br
     memset(c, 0, sizeof(*c));
     c->sfd = c->dfd = c->mfd = c->lockfd = -1;
     pthread_mutex_init(&c->progress_mutex, NULL);
+#ifdef _WIN32
+    if (!cc_win_validate_roots(source, destination, c->error, sizeof(c->error)))
+        return -1;
+#endif
     c->destination = realpath(destination, NULL);
     if (!c->destination)
         return fail(c, "Destination: %s", strerror(errno));
