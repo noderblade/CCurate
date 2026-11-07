@@ -10,11 +10,18 @@ Raven is included unmodified under `vendor/Raven`:
 Keep Raven's bundled dependency notices/licenses with its source. Its existing
 third-party assets and libraries retain their respective original terms.
 
-System dependencies are not copied into this distribution: OpenSSL, SQLite,
+The source repository does not vendor its system dependencies: OpenSSL, SQLite,
 libarchive, libmagic, Fontconfig, X11/Vulkan, libjpeg/libjpeg-turbo, GdkPixbuf, Poppler, Cairo/GLib/GIO, and FFmpeg.
 Their respective licenses and build configurations apply when linking or
-redistributing binaries. This package contains source code and documentation,
-not a statically linked redistribution of those system libraries.
+redistributing binaries.
+
+The Windows runtime ZIP includes native DLLs and resources from MSYS2 UCRT64
+packages. Their notices are copied into `licenses/`; `BUILD_ENVIRONMENT.txt`
+records the installed package versions used for that build. Package build recipes
+are maintained at https://github.com/msys2/MINGW-packages and link to each
+dependency's upstream source. The included `FILES.json` records the packaged
+files and their SHA-256 values. Raven's license is also included. These notices
+describe the bundled components; they do not replace their respective terms.
 
 ## Color palette references
 

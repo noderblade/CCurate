@@ -20,6 +20,8 @@ u.FindWindowW.argtypes = [w.LPCWSTR, w.LPCWSTR]; u.FindWindowW.restype = w.HWND
 u.SetForegroundWindow.argtypes = [w.HWND]
 u.MoveWindow.argtypes = [w.HWND, c.c_int, c.c_int, c.c_int, c.c_int, w.BOOL]
 u.GetWindowRect.argtypes = [w.HWND, c.POINTER(w.RECT)]
+u.IsWindowVisible.argtypes = [w.HWND]
+u.SystemParametersInfoW.argtypes = [w.UINT, w.UINT, c.c_void_p, w.UINT]
 u.PostMessageW.argtypes = [w.HWND, w.UINT, w.WPARAM, w.LPARAM]
 u.SetProcessDPIAware()
 
@@ -30,6 +32,9 @@ def key(vk, *modifiers):
     time.sleep(.25)
 
 def snap(name, window):
+    u.SetForegroundWindow(window)
+    time.sleep(.8)  # A created dialog can exist before its first composed frame.
+    assert u.IsWindowVisible(window), 'Application window is not visible'
     rect = w.RECT(); assert u.GetWindowRect(window, c.byref(rect))
     image = ImageGrab.grab(bbox=(rect.left, rect.top, rect.right, rect.bottom))
     image.save(SCREENSHOTS / (name + '.png'))
@@ -58,7 +63,11 @@ with tempfile.TemporaryDirectory(prefix='ccurate-windows-gui-') as temporary:
             global process
             process = subprocess.Popen([APP, *map(str, args)], cwd=root, stdout=log, stderr=log)
             hwnd = until(lambda: u.FindWindowW(None, title))
-            u.MoveWindow(hwnd, 20, 20, 1200, 850, True)
+            area = w.RECT()
+            assert u.SystemParametersInfoW(0x0030, 0, c.byref(area), 0)  # SPI_GETWORKAREA
+            u.MoveWindow(hwnd, area.left + 8, area.top + 8,
+                         min(1200, area.right - area.left - 16),
+                         min(850, area.bottom - area.top - 16), True)
             u.SetForegroundWindow(hwnd); time.sleep(1)
             return hwnd
 
@@ -71,6 +80,7 @@ with tempfile.TemporaryDirectory(prefix='ccurate-windows-gui-') as temporary:
             snap('01-folder-chooser', win)
             key(ord('S'), 0x12)
             dialog = until(lambda: u.FindWindowW(None, 'Choose the source folder'))
+            until(lambda: u.IsWindowVisible(dialog))
             snap('02-native-folder-browser', dialog)
             u.SetForegroundWindow(dialog); key(0x1b)
             u.SetForegroundWindow(win); stop(0x1b)

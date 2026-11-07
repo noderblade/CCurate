@@ -87,8 +87,8 @@ Low integrity plus a Job Object is **not an AppContainer** and does not reproduc
 Linux's socket filter or per-scratch-file limit. It is resource and privilege
 restriction, not complete filesystem/network isolation. Workers use the inherited
 read-only input handle, including bounded mappings for positional reads, without
-reopening the source path under a different identity. Decoder refusal is visible in the
-preview and log; copying is independent of preview availability.
+reopening the source path under a different identity. Decoder refusal is visible
+in the preview and log; copying is independent of preview availability.
 
 ## Build from source
 
@@ -110,8 +110,8 @@ image loaders and their resources, rejects an MSYS runtime dependency, and emits
 a SHA-256 `FILES.json` manifest and third-party license files. A complete package
 must also pass integration and GUI checks with MSYS2 removed from `PATH`.
 CI stages and registers Mesa's software Vulkan driver on its disposable runner;
-it is not
-bundled with the application or used to satisfy application DLL dependencies.
+it is not bundled with the application or used to satisfy application DLL
+dependencies.
 
 ## Source separation
 

@@ -76,9 +76,12 @@ for loader in loader_files:
 assert str(destination.drive).lower() + '/' not in cache.lower().replace('\\', '/'), 'Non-portable loader cache'
 (loaders.parent / 'loaders.cache').write_text(cache, encoding='utf-8')
 
-for name in ['README.md', 'USER_GUIDE.md', 'FORMAT.md', 'THIRD_PARTY.md', 'CHANGELOG.md']:
+for name in ['README.md', 'USER_GUIDE.md', 'FORMAT.md', 'THIRD_PARTY.md', 'CHANGELOG.md',
+             'ARCHITECTURE.md', 'TESTING.md']:
     shutil.copy2(name, destination / name)
-shutil.copy2('docs/WINDOWS_PORT.md', destination / 'WINDOWS.md')
+shutil.copytree('docs', destination / 'docs', dirs_exist_ok=True)
+(destination / 'BUILD_ENVIRONMENT.txt').write_text(
+    subprocess.check_output(['pacman', '-Q'], text=True, encoding='utf-8'), encoding='utf-8')
 license_dir = destination / 'licenses'
 shutil.copytree(prefix / 'share/licenses', license_dir, dirs_exist_ok=True)
 for name in ['LICENSE', 'LICENSE.md', 'LICENSE.txt']:

@@ -161,6 +161,15 @@ unchanged. No Windows source file is compiled into the Linux targets.
 
 ## Native Windows checks
 
+Native Windows validation passed on Windows Server 2022 with the MSYS2 UCRT64
+toolchain in [Actions run 42322961160](https://github.com/noderblade/CCurate/actions/runs/42322961160),
+commit `1664887b73229315d4f7561e261f728cc6f67dc1`. Both the full and core builds
+passed all 18 integration cases, the full build passed all seven restricted
+preview cases, and the real Win32/Vulkan GUI suite passed. The packaged runtime
+then passed the same 18 integration cases, seven preview cases and GUI suite with
+the development toolchain removed from the application's `PATH`. The NTFS
+case-sensitive-directory and junction fixtures ran successfully on this host.
+
 `tests/windows_integration.py` uses real disposable NTFS directories and the
 native executable. Its 18 cases cover binary bytes and SHA-512, deduplication,
 Unicode/emoji names, hidden/system attributes, long paths, case collisions,
