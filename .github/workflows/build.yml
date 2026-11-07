@@ -1,0 +1,89 @@
+name: Build and test
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  linux:
+    name: Linux primary regression suite
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build pkg-config libssl-dev libsqlite3-dev libarchive-dev libmagic-dev libx11-dev libvulkan-dev libfontconfig1-dev libglib2.0-dev libjpeg-dev libgdk-pixbuf-2.0-dev libpoppler-glib-dev libavformat-dev libavcodec-dev libavutil-dev libswscale-dev mesa-vulkan-drivers xvfb xdotool python3-pil
+      - name: Build full and core configurations
+        run: |
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake --build build --target ccurate previewcheck jpegfixture preview_policy_probe workercheck sortcheck activitycheck
+          cmake -S . -B build-core -G Ninja -DCCURATE_GUI=OFF -DCCURATE_MEDIA=OFF -DCMAKE_BUILD_TYPE=Release
+          cmake --build build-core
+      - name: Core, preview and native GUI regressions
+        run: python3 tests/run_linux.py build build-core
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: linux-test-logs
+          path: test-results/
+
+  windows:
+    name: Windows x64 UCRT64
+    runs-on: windows-2022
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          install: >-
+            mingw-w64-ucrt-x86_64-gcc
+            mingw-w64-ucrt-x86_64-cmake
+            mingw-w64-ucrt-x86_64-ninja
+            mingw-w64-ucrt-x86_64-pkgconf
+            mingw-w64-ucrt-x86_64-python
+            mingw-w64-ucrt-x86_64-openssl
+            mingw-w64-ucrt-x86_64-sqlite3
+            mingw-w64-ucrt-x86_64-libarchive
+            mingw-w64-ucrt-x86_64-file
+            mingw-w64-ucrt-x86_64-vulkan-headers
+            mingw-w64-ucrt-x86_64-vulkan-loader
+            mingw-w64-ucrt-x86_64-fontconfig
+            mingw-w64-ucrt-x86_64-glib2
+            mingw-w64-ucrt-x86_64-libjpeg-turbo
+            mingw-w64-ucrt-x86_64-gdk-pixbuf2
+            mingw-w64-ucrt-x86_64-poppler
+            mingw-w64-ucrt-x86_64-ffmpeg
+      - name: Build native executable and tests
+        run: |
+          cmake -S . -B build-windows -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake --build build-windows --parallel 4
+      - name: Native Windows regression suite
+        run: ctest --test-dir build-windows --output-on-failure
+      - name: Package native runtime
+        run: python scripts/package_windows.py build-windows/ccurate.exe dist/CCurate-windows-x64
+      - name: Test packaged runtime without MSYS2 on PATH
+        shell: pwsh
+        run: |
+          $env:PATH = "$env:SystemRoot\system32;$env:SystemRoot"
+          & .\dist\CCurate-windows-x64\ccurate.exe --version
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CCurate-windows-x64
+          path: dist/CCurate-windows-x64/
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: windows-test-logs
+          path: build-windows/Testing/Temporary/
