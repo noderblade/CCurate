@@ -149,3 +149,10 @@ after each chunk. Deferred observations leave immutable retained versions intact
 Empty regular files use `empty_copies`, keyed by version, instead of a shared
 `objects` hash mapping. Live/history queries, target state, audit, copy recovery,
 destination moves and schema-2 export resolve this table alongside nonempty objects.
+
+Windows bootstrap diagnostics live in `diagnostics_windows.c/.h` and are initialized
+before runtime setup or Raven initialization. A non-inheritable stderr pipe copies
+diagnostics to a per-launch log and the original console/redirected stream. CLI
+stdout is preserved; restricted workers bypass this service. Windows-only GUI
+hooks record initialization and the first frame. The independent packaged
+PowerShell/CMD launcher diagnoses loader failures that occur before C entry.

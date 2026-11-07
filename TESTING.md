@@ -211,3 +211,18 @@ directory, with the application toolchain still absent. This is
 stronger than link success, but still runs on the CI host rather than a fresh
 consumer Windows installation. See [the Windows guide](docs/WINDOWS_PORT.md)
 for unsupported filesystem features and preview isolation differences.
+
+## Windows startup diagnostics
+
+`tests/windows_startup.py` exercises redirected console streams, ordinary and
+`--debug` invocation, application errors in persistent logs, unchanged binary
+worker protocols, a missing Vulkan driver, startup without standard handles,
+a deliberately raised exception, and both successful and missing-DLL launcher
+runs. The missing-DLL fixture contains only a copied executable and diagnostics
+scripts with development directories removed from PATH; it never modifies the
+built package. The native probe is a test executable and is not distributed.
+
+Full and core Windows CTest runs include this suite; GUI-specific cases are
+skipped in core builds. Packaging runs the applicable startup cases again against
+the runtime with MSYS2 absent from PATH. Existing Windows GUI and preview suites
+remain enabled. Linux does not compile or link the diagnostics implementation.

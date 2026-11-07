@@ -126,6 +126,63 @@ CI stages and registers Mesa's software Vulkan driver on its disposable runner;
 it is not bundled with the application or used to satisfy application DLL
 dependencies.
 
+## Startup diagnostics
+
+If no window appears, extract the **complete** current Windows ZIP and
+run **CCurate-Debug.cmd** from that folder. The launcher waits for the application,
+shows console diagnostics and the decimal/hexadecimal Windows exit code, saves
+its output, and waits for Enter before closing. It uses the Windows PowerShell
+already supplied by Windows; no development tools are required. Its execution
+policy option applies only to that PowerShell process.
+
+Normal application startup attempts to create a UTF-8 log under:
+
+```text
+%LOCALAPPDATA%\CCurate\Logs\startup-<UTC timestamp>-<PID>.log
+```
+
+Paste `%LOCALAPPDATA%\CCurate\Logs` into Explorer's address bar. The launcher
+also writes `launcher-*.log` and `console-*.log` there. `CCURATE_LOG_DIR` overrides
+the directory; if it is unavailable, diagnostics try the standard directory and
+then `%TEMP%\CCurate\Logs`. Each application stderr log is capped at 8 MiB.
+The launcher logs are separate from `.ccurate/activity.log`, which belongs to an
+opened curation session and may not exist when startup fails.
+
+For terminal use:
+
+```powershell
+.\CCurate-Debug.cmd
+.\CCurate-Debug.cmd --version
+# Skip the launcher's final prompt when collecting diagnostics automatically:
+.\CCurate-Debug.cmd -NoPause --version
+# Direct application startup with additional diagnostics:
+.\ccurate.exe --debug
+```
+
+Normal GUI invocations also attach to an available parent console. Redirected
+stdout/stderr remain usable, and stderr is copied to the startup log. `--debug`
+adds Vulkan-loader and Windows-adapter diagnostics; when no parent console or
+redirected streams exist it creates a diagnostic console. The flag precedes the
+normal arguments, for example `ccurate.exe --debug --browse D:\Archive`.
+
+Logs record the build revision, Windows build, display adapters, relevant Vulkan
+environment overrides, Raven errors, initialization stages, first frame and exit
+status. They do not dump file contents or process memory. Paths and diagnostic
+messages can include local usernames and directory names. Restricted preview/open
+workers bypass the startup logger and keep their inherited binary protocols.
+
+An application cannot write its own log if Windows fails before its entry point.
+The independent launcher still records errors such as `0xC0000135` (missing DLL),
+`0xC000007B` (invalid/mismatched binary), `0xC0000142` (DLL initialization failure)
+and `0xC000001D` (illegal instruction, potentially missing VM CPU features).
+A GUI startup failure without a console also displays a message with the log path.
+Unhandled Windows exceptions are recorded when the exception handler can run.
+
+A VM's display adapter may not provide the Vulkan support required by Raven.
+The loader/backend messages establish whether that is the cause; the presence of
+`vulkan-1.dll` alone does not prove a usable Vulkan graphics device is available.
+Send the latest startup and launcher logs when reporting a silent exit.
+
 ## Source separation
 
 All Windows implementation files are under `src/platform/windows/`; their
@@ -135,6 +192,7 @@ implementations remain in place. Vendored Raven is unchanged.
 
 | Windows file | Responsibility |
 | --- | --- |
+| `diagnostics_windows.c` / `diagnostics_windows.h` | Early console attachment, stderr/file capture, startup stages and exception diagnostics |
 | `fs_windows.c` / `fs_windows.h` | Descriptor adapter, paths, handle-relative I/O, enumeration, locking, durability and space queries |
 | `metadata_windows.c` | Attributes, SDDL, stream detection and reparse metadata |
 | `process_windows.c` / `process_windows.h` | Restricted process creation, pipes, handle inheritance and Job Objects |

@@ -1,5 +1,6 @@
 #define CCURATE_WINDOWS_NATIVE
 #include "curator.h"
+#include "platform/windows/diagnostics_windows.h"
 #include "platform/windows/native_windows.h"
 #include <shellapi.h>
 #ifdef CCURATE_GUI
@@ -32,7 +33,7 @@ void cc_win_runtime_init(void)
     SetConsoleOutputCP(CP_UTF8);
     _set_fmode(_O_BINARY);
     for (int fd = 0; fd < 3; fd++)
-        if (_get_osfhandle(fd) != -1)
+        if (_get_osfhandle(fd) != -1 && _get_osfhandle(fd) != -2)
             _setmode(fd, _O_BINARY);
     runtime_variable(L"MAGIC", L"share\\misc\\magic.mgc");
     runtime_variable(L"FONTCONFIG_FILE", L"etc\\fonts\\fonts.conf");
@@ -45,34 +46,53 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE previous, PWSTR line, int show
     (void)previous;
     (void)line;
     (void)show;
-    cc_win_runtime_init();
-    int argc;
+    SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX | SEM_NOOPENFILEERRORBOX);
+    int argc = 0;
     wchar_t **wide = CommandLineToArgvW(GetCommandLineW(), &argc);
-    if (!wide)
+    int debug = wide && argc > 1 && !wcscmp(wide[1], L"--debug");
+    int first = debug ? 2 : 1;
+    int worker =
+        wide && argc > first &&
+        (!wcscmp(wide[first], L"--preview-worker") || !wcscmp(wide[first], L"--open-worker"));
+    int graphical = 0;
+#ifdef CCURATE_GUI
+    graphical = !worker && (argc <= first ||
+                            (wcscmp(wide[first], L"--cli") && wcscmp(wide[first], L"--help") &&
+                             wcscmp(wide[first], L"--version")));
+#endif
+    if (!worker)
+        cc_win_diagnostics_start(debug, graphical);
+    cc_win_runtime_init();
+    if (!wide) {
+        cc_win_startup_note("ERROR: CommandLineToArgvW failed.");
+        cc_win_diagnostics_finish(2);
         return 2;
-    char **argv = xmalloc(((size_t)argc + 1) * sizeof(*argv));
-    for (int i = 0; i < argc; i++) {
-        argv[i] = cc_win_utf8(wide[i]);
+    }
+    int count = argc - debug;
+    char **argv = xmalloc(((size_t)count + 1) * sizeof(*argv));
+    for (int i = 0; i < count; i++) {
+        argv[i] = cc_win_utf8(wide[i && debug ? i + 1 : i]);
         if (!argv[i]) {
+            for (int j = 0; j < i; j++)
+                free(argv[j]);
+            free(argv);
             LocalFree(wide);
+            if (!worker) {
+                cc_win_startup_note("ERROR: Cannot convert command-line arguments to UTF-8.");
+                cc_win_diagnostics_finish(2);
+            }
             return 2;
         }
     }
     LocalFree(wide);
-    if (argc > 1 &&
-        (!strcmp(argv[1], "--cli") || !strcmp(argv[1], "--version") ||
-         !strcmp(argv[1], "--help")) &&
-        (_get_osfhandle(1) == -1 || _get_osfhandle(1) == -2) &&
-        AttachConsole(ATTACH_PARENT_PROCESS)) {
-        FILE *output = NULL;
-        freopen_s(&output, "CONOUT$", "w", stdout);
-        freopen_s(&output, "CONOUT$", "w", stderr);
-        SetConsoleOutputCP(CP_UTF8);
-    }
+    if (!worker)
+        cc_win_startup_note("Runtime resources configured; entering the application.");
     /* Inherited standard handles are CRT descriptors 0, 1 and 2 in workers. */
-    int rc = ccurate_main(argc, argv);
-    for (int i = 0; i < argc; i++)
+    int rc = ccurate_main(count, argv);
+    for (int i = 0; i < count; i++)
         free(argv[i]);
     free(argv);
+    if (!worker)
+        cc_win_diagnostics_finish(rc);
     return rc;
 }

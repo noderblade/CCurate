@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Add persistent Windows startup logs, console diagnostics for normal GUI launches,
+  `--debug`, startup error messages and a packaged `CCurate-Debug.cmd` launcher
+  that records loader failures and process exit codes before application entry.
+- Handle the Windows no-console `-2` standard handles safely; preserve redirected
+  streams and restricted worker protocols. Add missing-driver/DLL, detached-launch,
+  exception and launcher regressions to native Windows CI.
+
 - Exclude zero-byte files from duplicate groups and retain their metadata and
   destinations independently, including audit, moves, recovery and JSONL export.
 - Upgrade CCurate sessions and portable exports to schema 2 while preserving

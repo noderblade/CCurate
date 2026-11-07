@@ -13,6 +13,9 @@
 #include <math.h>
 #include <stdlib.h>
 #include <string.h>
+#ifdef _WIN32
+#include "platform/windows/diagnostics_windows.h"
+#endif
 
 /* Application lifecycle and Raven callback adapters. */
 
@@ -152,6 +155,9 @@ int gui_main(Catalog *c, int historical)
     init.ui_scale = ui->scale;
     init.app_name = "CCurate";
     init.worker_threads = 2;
+#ifdef _WIN32
+    cc_win_startup_note("Initializing the curation workspace (Vulkan / display).");
+#endif
     Rerror_set_callback(raven_error);
     if (!Rinit_ex(&init)) {
         sqlite3_close(ui->reader.db);
@@ -167,6 +173,9 @@ int gui_main(Catalog *c, int historical)
         sqlite3_close(ui->reader.db);
         return fail(c, "Window creation failed");
     }
+#ifdef _WIN32
+    cc_win_startup_note("Curation window created; waiting for its first frame.");
+#endif
     Rwindow_set_min_size(ui->window, 1000, 680);
     ui->overlay = Rwidget_create(R_WIDGET_OVERLAY);
     ui->canvas = Rwidget_create(R_WIDGET_CUSTOM);
@@ -225,6 +234,9 @@ int gui_main(Catalog *c, int historical)
         gui_notice(ui, "Font discovery could not start; using bundled monospace.");
     double last_refresh = 0, last_save = 0, last_log = 0;
     while (Rwait_frame(.04)) {
+#ifdef _WIN32
+        cc_win_startup_ready();
+#endif
         if (atomic_load(&ui->finished)) {
             pthread_join(ui->worker, NULL);
             atomic_store(&ui->finished, 0);
