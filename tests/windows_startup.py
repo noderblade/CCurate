@@ -96,14 +96,18 @@ class Startup(unittest.TestCase):
         self.assertIn('Unhandled Windows exception 0xC0000005', self.read_log())
 
     def test_launcher_waits_and_preserves_successful_exit(self):
-        script = APP.parent / 'CCurate-Debug.ps1'
-        if not script.exists():
-            shutil.copy2(SCRIPTS / script.name, script)
-            self.addCleanup(script.unlink)
-        powershell = Path(os.environ['SystemRoot']) / 'System32/WindowsPowerShell/v1.0/powershell.exe'
-        result = subprocess.run([str(powershell), '-NoLogo', '-NoProfile', '-ExecutionPolicy', 'Bypass',
-                                 '-File', str(script), '-NoPause', '--version'],
-                                capture_output=True, timeout=45, env=self.env, cwd=self.root)
+        for name in ('CCurate-Debug.cmd', 'CCurate-Debug.ps1'):
+            script = APP.parent / name
+            if not script.exists():
+                shutil.copy2(SCRIPTS / name, script)
+                self.addCleanup(script.unlink)
+        # Exercise the actual double-click launcher, including its PowerShell
+        # lookup and propagation of the application exit status.
+        command = APP.parent / 'CCurate-Debug.cmd'
+        comspec = Path(os.environ['SystemRoot']) / 'System32/cmd.exe'
+        cmdline = f'"{comspec}" /d /s /c ""{command}" -NoPause --version"'
+        result = subprocess.run(cmdline, capture_output=True, timeout=45,
+                                env=self.env, cwd=self.root)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn(b'Process exit code: 0 (0x00000000)', result.stdout)
         self.assertIn('Application exited: status=0', self.read_log())
