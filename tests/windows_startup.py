@@ -2,7 +2,6 @@
 """Windows bootstrap failures, stderr capture and pre-entry loader diagnostics."""
 from pathlib import Path
 import os
-import ntpath
 import shutil
 import struct
 import subprocess
@@ -108,8 +107,11 @@ class Startup(unittest.TestCase):
         comspec = Path(os.environ['SystemRoot']) / 'System32/cmd.exe'
         # CMD parses its own command line differently from CRT applications.
         # Normalize argv[0] as well: active MSYS2 Python emits forward slashes.
-        result = subprocess.run([ntpath.normpath(str(comspec)), '/d', '/c', 'call',
-                                 ntpath.normpath(str(command)), '-NoPause', '--version'],
+        # ntpath is also patched in MSYS2, so replace separators explicitly.
+        native_shell = str(comspec).replace('/', '\\')
+        native_command = str(command).replace('/', '\\')
+        result = subprocess.run([native_shell, '/d', '/c', 'call',
+                                 native_command, '-NoPause', '--version'],
                                 capture_output=True, timeout=45, env=self.env, cwd=self.root)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn(b'Process exit code: 0 (0x00000000)', result.stdout)
