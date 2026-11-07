@@ -218,8 +218,12 @@ HANDLE cc_win_relative_handle(int root, const char *leaf, ACCESS_MASK access, UL
         errno = ENAMETOOLONG;
         return INVALID_HANDLE_VALUE;
     }
-    UNICODE_STRING name = {(USHORT)bytes, (USHORT)(bytes + sizeof(*wide)), wide};
-    OBJECT_ATTRIBUTES object = {sizeof(object), parent, &name, OBJ_CASE_INSENSITIVE, NULL, NULL};
+    UNICODE_STRING name = {
+        .Length = (USHORT)bytes, .MaximumLength = (USHORT)(bytes + sizeof(*wide)), .Buffer = wide};
+    OBJECT_ATTRIBUTES object = {.Length = sizeof(object),
+                                .RootDirectory = parent,
+                                .ObjectName = &name,
+                                .Attributes = OBJ_CASE_INSENSITIVE};
     IO_STATUS_BLOCK status;
     HANDLE h = INVALID_HANDLE_VALUE;
     NTSTATUS result = nt_create(
@@ -336,8 +340,8 @@ int cc_win_openat(int root, const char *leaf, int flags, ...)
 }
 static struct timespec timestamp(LONGLONG ticks)
 {
-    int64_t ns = (ticks - 116444736000000000LL) * 100;
-    struct timespec result = {(time_t)(ns / 1000000000), (long)(ns % 1000000000)};
+    int64_t relative = ticks - 116444736000000000LL;
+    struct timespec result = {(time_t)(relative / 10000000), (long)((relative % 10000000) * 100)};
     if (result.tv_nsec < 0) {
         result.tv_sec--;
         result.tv_nsec += 1000000000;

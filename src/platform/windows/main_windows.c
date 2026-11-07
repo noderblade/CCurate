@@ -14,7 +14,7 @@ static void runtime_variable(const wchar_t *name, const wchar_t *tail)
         return;
     wcscpy(slash + 1, tail);
     if (GetFileAttributesW(path) != INVALID_FILE_ATTRIBUTES)
-        SetEnvironmentVariableW(name, path);
+        _wputenv_s(name, path);
 }
 void cc_win_runtime_init(void)
 {
@@ -49,6 +49,16 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE previous, PWSTR line, int show
         }
     }
     LocalFree(wide);
+    if (argc > 1 &&
+        (!strcmp(argv[1], "--cli") || !strcmp(argv[1], "--version") ||
+         !strcmp(argv[1], "--help")) &&
+        (_get_osfhandle(1) == -1 || _get_osfhandle(1) == -2) &&
+        AttachConsole(ATTACH_PARENT_PROCESS)) {
+        FILE *output = NULL;
+        freopen_s(&output, "CONOUT$", "w", stdout);
+        freopen_s(&output, "CONOUT$", "w", stderr);
+        SetConsoleOutputCP(CP_UTF8);
+    }
     /* Inherited standard handles are CRT descriptors 0, 1 and 2 in workers. */
     int rc = ccurate_main(argc, argv);
     for (int i = 0; i < argc; i++)

@@ -2,14 +2,15 @@
 
 **Curate your files. Keep their history.**
 
-CCurate is a native Linux application for manually turning a crowded old drive
+CCurate is a native application for manually turning a crowded old drive
 into an organized archive. Decide what matters, choose where it belongs, and keep
 a browsable record of where it came from. Identical file contents share one
 verified destination copy, even when they originally appeared in many folders.
 
 Written in C11, with a [Raven](https://github.com/oscar-soirey/Raven) interface,
 SHA-512 content verification, SQLite sessions and a portable JSON Lines index.
-Current version: **0.1.0**.
+Current version: **0.1.0**. **Linux is the primary platform**; an experimental
+native Windows x64 port is available.
 
 ![CCurate workspace with source and destination panes, scan progress, image preview and file details](docs/images/ccurate-workspace.png)
 
@@ -192,10 +193,11 @@ your desktop user, including when CCurate itself runs through `sudo`.
 For dependency package examples, display backend selection and the CLI-only
 build, see the [build instructions](USER_GUIDE.md#build).
 
-Native Windows builds are not supported yet. Raven has a Windows backend, but
-CCurate's filesystem and worker services require a platform port. The
-[Windows assessment](docs/WINDOWS_PORT.md) describes the work and a proposed
-GitHub Actions build pipeline.
+For Windows, extract the complete **CCurate-windows-x64** Actions artifact and
+launch `ccurate.exe`. MSYS2 is needed only to build, not to run the package.
+The [Windows guide](docs/WINDOWS_PORT.md) covers installation, native build steps,
+separate platform files and limitations, including alternate streams, metadata
+and preview restrictions. Windows work is gated by the independent Linux suite.
 
 ## Sessions and the portable index
 
@@ -270,5 +272,5 @@ directory to continue curation. See [archive format](FORMAT.md) and
 - [Source architecture](ARCHITECTURE.md): C modules, header interfaces and UI
   state/thread ownership.
 - [Third-party notices](THIRD_PARTY.md): bundled Raven revision and dependencies.
-- [Windows port assessment](docs/WINDOWS_PORT.md): platform dependencies, scope
-  and automated build proposal.
+- [Windows guide](docs/WINDOWS_PORT.md): native package, build automation,
+  platform separation and documented differences.

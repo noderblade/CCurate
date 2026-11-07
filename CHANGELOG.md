@@ -7,7 +7,13 @@
   session creation. A single source argument prefills the source; bare `--browse`
   selects an existing destination archive.
 - Keep selected roots and show session-opening errors in the startup chooser.
-- Document the scope of a native Windows port and GitHub Actions build automation.
+- Add an experimental native Windows x64/UCRT64 port with separate platform
+  sources and headers; preserve the primary Linux build and test paths.
+- Add handle-relative Windows file operations, Unicode/long paths, native locking,
+  metadata capture, restricted preview processes and native desktop integration.
+- Refuse unsafe destination names, junction traversal and unsupported named streams.
+- Add independent Linux/Windows GitHub Actions builds, native regression suites
+  and a portable Windows runtime package with dependency checks.
 
 ## 0.1.0 - 2026-11-06
 

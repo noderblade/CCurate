@@ -68,6 +68,7 @@ loaders = destination / 'lib/gdk-pixbuf-2.0/2.10.0/loaders'
 loader_files = list(loaders.glob('*.dll'))
 cache = subprocess.check_output([str(bin_dir / 'gdk-pixbuf-query-loaders.exe'),
                                  *[str(p) for p in loader_files]], text=True, encoding='utf-8')
+cache = '\n'.join(line for line in cache.splitlines() if not line.startswith('#')) + '\n'
 for loader in loader_files:
     relative = loader.relative_to(destination).as_posix()
     for original in [str(loader).replace('\\', '\\\\'), str(loader).replace('\\', '/')]:

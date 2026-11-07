@@ -119,3 +119,19 @@ The application build enables `-Wmissing-prototypes` and `-Wstrict-prototypes`
 alongside the existing warnings. Validation checks individual header inclusion,
 full and core-only builds, existing integration tests and native GUI regressions.
 See [TESTING.md](TESTING.md) for executed checks and environmental limits.
+
+## Windows boundary
+
+Linux is primary. `CMakeLists.txt` selects `cmake/Windows.cmake` only for WIN32,
+then returns; the existing Linux target graph remains separate. Windows sources
+live in `src/platform/windows/` with interfaces in `include/platform/windows/`.
+`fs_windows.h` supplies a private descriptor adapter for the shared core; its
+aliases never reach Linux or vendored Raven. Native Windows implementation files
+disable those aliases with `CCURATE_WINDOWS_NATIVE`.
+
+Shared catalog, copy verification, SQL/JSONL, paging and UI modules remain common.
+Platform selections are guarded by `_WIN32`; Linux filesystem, preview and
+desktop behavior is retained. Windows preview process and default-app launch
+implementations are separate translation units, not replacements for Linux
+services. [The Windows guide](docs/WINDOWS_PORT.md#source-separation) maps each
+platform module and documents differences that cannot be emulated faithfully.

@@ -44,6 +44,7 @@ if(CCURATE_GUI)
  pkg_check_modules(FONTCONFIG REQUIRED IMPORTED_TARGET fontconfig)
  target_sources(ccurate PRIVATE
    src/platform/windows/desktop_windows.c src/platform/windows/fonts_windows.c
+   src/platform/windows/dialog_windows.c
    src/font_catalog.c
    src/gui/gui.c src/gui/gui_startup.c src/gui/gui_controller.c src/gui/gui_browser.c
    src/gui/gui_navigation.c src/gui/gui_open.c src/gui/gui_jobs.c src/gui/gui_layout.c

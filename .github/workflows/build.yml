@@ -70,14 +70,32 @@ jobs:
           cmake -S . -B build-windows -G Ninja -DCMAKE_BUILD_TYPE=Release
           cmake --build build-windows --parallel 4
       - name: Native Windows regression suite
-        run: ctest --test-dir build-windows --output-on-failure
+        run: |
+          echo "CCURATE_TEST_PYTHON=$(cygpath -w "$(command -v python)")" >> "$GITHUB_ENV"
+          ctest --test-dir build-windows --output-on-failure
+      - name: Select software Vulkan for desktop tests
+        shell: pwsh
+        run: |
+          $roots = @("$env:ProgramFiles\Google\Chrome\Application", "${env:ProgramFiles(x86)}\Microsoft\Edge\Application")
+          $icd = Get-ChildItem $roots -Filter vk_swiftshader_icd.json -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $icd) { throw 'Software Vulkan ICD unavailable; GUI validation cannot be skipped.' }
+          "VK_ICD_FILENAMES=$($icd.FullName)" >> $env:GITHUB_ENV
+          Write-Output "Testing with $($icd.FullName)"
+      - name: Native Windows GUI regression
+        run: python tests/windows_gui.py build-windows/ccurate.exe test-results/windows-gui
       - name: Package native runtime
         run: python scripts/package_windows.py build-windows/ccurate.exe dist/CCurate-windows-x64
       - name: Test packaged runtime without MSYS2 on PATH
         shell: pwsh
         run: |
+          $python = $env:CCURATE_TEST_PYTHON
+          if (-not (Test-Path $python)) { throw 'Native test interpreter missing' }
           $env:PATH = "$env:SystemRoot\system32;$env:SystemRoot"
           & .\dist\CCurate-windows-x64\ccurate.exe --version
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & $python tests/windows_integration.py dist/CCurate-windows-x64/ccurate.exe
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & $python tests/windows_gui.py dist/CCurate-windows-x64/ccurate.exe test-results/windows-packaged-gui
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - uses: actions/upload-artifact@v4
         with:
@@ -87,4 +105,6 @@ jobs:
         if: always()
         with:
           name: windows-test-logs
-          path: build-windows/Testing/Temporary/
+          path: |
+            build-windows/Testing/Temporary/
+            test-results/

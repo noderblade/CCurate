@@ -84,6 +84,7 @@ int cc_win_spawn(CCWinProcess *child, int input, const char *const *arguments, i
     wchar_t exe[32768], directory[32768], *command = NULL;
     DWORD error = ERROR_GEN_FAILURE;
     SIZE_T bytes = 0;
+    int attributes_ready = 0;
     DWORD length = GetModuleFileNameW(NULL, exe, 32768);
     if (!length || length >= 32768)
         goto failure;
@@ -105,6 +106,7 @@ int cc_win_spawn(CCWinProcess *child, int input, const char *const *arguments, i
     start.lpAttributeList = xmalloc(bytes);
     if (!InitializeProcThreadAttributeList(start.lpAttributeList, 1, 0, &bytes))
         goto failure;
+    attributes_ready = 1;
     HANDLE inherited[] = {source, writes[0], writes[1]};
     if (!UpdateProcThreadAttribute(start.lpAttributeList, 0, PROC_THREAD_ATTRIBUTE_HANDLE_LIST,
                                    inherited, sizeof(inherited), NULL, NULL))
@@ -160,7 +162,8 @@ failure:
     if (process.hThread)
         CloseHandle(process.hThread);
     if (start.lpAttributeList) {
-        DeleteProcThreadAttributeList(start.lpAttributeList);
+        if (attributes_ready)
+            DeleteProcThreadAttributeList(start.lpAttributeList);
         free(start.lpAttributeList);
     }
     free(command);
