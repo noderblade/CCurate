@@ -83,10 +83,10 @@ static int finalize_copy(Catalog *c, int64_t op, const char *src, const char *ds
     rc |= done(s);
     event_log(c, "copy", src, dst, hash);
     if (rc) {
-        sql_exec(c, "ROLLBACK");
+        sql_rollback(c);
         return fail(c, "Cannot commit copy metadata");
     }
-    return sql_exec(c, "COMMIT");
+    return sql_end(c, 0);
 }
 static int move_mapping(Catalog *c, int64_t op, const char *src, const char *dst)
 {
@@ -109,10 +109,10 @@ static int move_mapping(Catalog *c, int64_t op, const char *src, const char *dst
     rc |= done(s);
     event_log(c, "move", src, dst, NULL);
     if (rc) {
-        sql_exec(c, "ROLLBACK");
+        sql_rollback(c);
         return -1;
     }
-    return sql_exec(c, "COMMIT");
+    return sql_end(c, 0);
 }
 static int verify_at(Catalog *c, const char *path, const char *expected)
 {
@@ -248,10 +248,11 @@ int mark_entries(Catalog *c, const char *path, const char *action)
     }
     event_log(c, action, path, NULL, NULL);
     if (rc) {
-        sql_exec(c, "ROLLBACK");
+        sql_rollback(c);
         return fail(c, "Cannot save decision");
     }
-    sql_exec(c, "COMMIT");
+    if (sql_end(c, 0))
+        return -1;
     return export_archive(c);
 }
 static int64_t intent(Catalog *c, const char *kind, const char *src, const char *dst,

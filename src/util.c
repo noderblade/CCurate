@@ -447,22 +447,48 @@ int fail(Catalog *c, const char *s, ...)
     }
     return -1;
 }
+int sql_error(Catalog *c, int rc, const char *operation)
+{
+    int primary = rc & 255, extended = sqlite3_extended_errcode(c->db);
+    if ((extended & 255) != primary)
+        extended = rc;
+    return fail(c, "SQLite %s [%d/%d] during %.160s: %s%s",
+                primary == SQLITE_BUSY     ? "busy"
+                : primary == SQLITE_LOCKED ? "locked"
+                                           : "error",
+                primary, extended, operation, sqlite3_errmsg(c->db),
+                primary == SQLITE_BUSY || primary == SQLITE_LOCKED
+                    ? ". Another connection may hold the catalog. Close other CCurate instances "
+                      "or database tools and retry. Do not delete the database, WAL or SHM files."
+                    : "");
+}
 int sql_exec(Catalog *c, const char *sql)
 {
-    char *err = NULL;
-    int rc = sqlite3_exec(c->db, sql, NULL, NULL, &err);
-    if (rc != SQLITE_OK) {
-        fail(c, "SQLite: %s", err ? err : sqlite3_errmsg(c->db));
-        sqlite3_free(err);
-        return -1;
-    }
-    return 0;
+    int rc = sqlite3_exec(c->db, sql, NULL, NULL, NULL);
+    return rc == SQLITE_OK ? 0 : sql_error(c, rc, sql);
+}
+int sql_rollback(Catalog *c)
+{
+    if (!c->db || sqlite3_get_autocommit(c->db))
+        return 0;
+    sqlite3_progress_handler(c->db, 0, NULL, NULL);
+    return sql_exec(c, "ROLLBACK");
+}
+int sql_end(Catalog *c, int result)
+{
+    if (!result)
+        result = sql_exec(c, "COMMIT");
+    /* A failed COMMIT can leave a write lock owned by this connection. */
+    if (result)
+        sql_rollback(c);
+    return result;
 }
 sqlite3_stmt *sql_prepare(Catalog *c, const char *sql)
 {
     sqlite3_stmt *s = NULL;
-    if (sqlite3_prepare_v2(c->db, sql, -1, &s, NULL) != SQLITE_OK) {
-        fail(c, "SQLite: %s", sqlite3_errmsg(c->db));
+    int rc = sqlite3_prepare_v2(c->db, sql, -1, &s, NULL);
+    if (rc != SQLITE_OK) {
+        sql_error(c, rc, sql);
         return NULL;
     }
     return s;
@@ -487,11 +513,13 @@ int set_setting(Catalog *c, const char *key, const char *value)
 {
     sqlite3_stmt *s = sql_prepare(
         c, "INSERT INTO settings VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value");
+    if (!s)
+        return -1;
     bind_text(s, 1, key);
     bind_text(s, 2, value);
     int rc = sqlite3_step(s);
     sqlite3_finalize(s);
-    return rc == SQLITE_DONE ? 0 : fail(c, "Setting: %s", sqlite3_errmsg(c->db));
+    return rc == SQLITE_DONE ? 0 : sql_error(c, rc, "save setting");
 }
 void event_log(Catalog *c, const char *op, const char *from, const char *to, const char *hash)
 {

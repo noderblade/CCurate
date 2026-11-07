@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- Release unfinished SQLite transactions after failed commits and cancelled view
+  queries. Stop failed scan batches cleanly and allow retry in the same session.
+- Start live GUI scans before initial view requests so occurrence-cache rebuilding
+  does not compete with startup scanning. Preserve the previous JSONL index when
+  its database snapshot cannot be read or committed.
+- Log incomplete-scan recovery and startup database failures, including SQLite
+  error codes and the failing operation; distinguish session-lock access errors
+  from a live second instance. Keep existing catalogs and WAL data in place.
+- Add Linux/Windows hard-kill recovery, concurrent-instance, external-writer,
+  failed-commit and interrupted-query regressions.
+
 - Add persistent Windows startup logs, console diagnostics for normal GUI launches,
   `--debug`, startup error messages and a packaged `CCurate-Debug.cmd` launcher
   that records loader failures and process exit codes before application entry.

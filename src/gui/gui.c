@@ -220,14 +220,16 @@ int gui_main(Catalog *c, int historical)
         sqlite3_close(ui->reader.db);
         return fail(c, "Cannot start view worker");
     }
+    /* Set busy before submitting initial views: the scan owns occurrence-cache
+     * preparation, and initial listing requests must use the live/fast path. */
+    if (!historical)
+        gui_start_job(ui, "scan", NULL, NULL, 0);
     gui_pane_reload(ui, 0);
     gui_pane_reload(ui, 1);
     gui_request_view(ui, VIEW_SUMMARY);
     gui_jobs_start_preview(ui);
     gui_request_preview(ui, 1);
-    if (!historical)
-        gui_start_job(ui, "scan", NULL, NULL, 0);
-    else
+    if (historical)
         gui_notice(ui, "History: files are read from the destination. Ctrl+H switches views.");
     ui->font_service = font_service_start(c);
     if (!ui->font_service)

@@ -521,7 +521,7 @@ of the entire live filesystem at one instant.
 
 `DESTINATION/.ccurate/catalog.sqlite` holds inventory, decisions, versions,
 content mappings, per-version empty-file locations, operation history and view settings. The database uses WAL and
-durable commits. Scanning checkpoints every 128 entries. After interruption, the
+durable commits. Scanning commits batches of 128 entries. After interruption, the
 program reconciles pending copy/move operations and continues from saved state.
 The unstarted remainder of a multiple-selection operation is not a durable work
 queue; select those entries again after a restart. Cancelled scan observations
@@ -532,6 +532,42 @@ Do not remove `.ccurate`: it contains your working session.
 Schema versions are checked; an application refuses a schema newer than it supports.
 To copy a session, close the application and preserve the whole `.ccurate`
 directory. Keep the source mounted at the same path between sessions.
+
+### Recovery and database locks
+
+After a forced exit or a killed process, reopen the same source and destination.
+SQLite recovers committed WAL transactions when the catalog is opened. CCurate
+records `scan.recovery` when the last scan was incomplete and refreshes the source
+inventory. Already committed inventory batches, decisions and retained copies
+remain available. An unfinished transaction is rolled back; unchanged completed
+files can reuse their hashes during an incremental scan.
+
+Keep the complete `.ccurate` directory. Do not delete `catalog.sqlite`, its `-wal`
+or `-shm` sidecars, or `session.lock` to clear a lock. The existence of
+`session.lock` is normal; ownership is an operating-system lock released when
+its owning handles close. WAL can contain committed work not yet checkpointed
+into the main database file.
+
+If reopening fails:
+
+1. Close other CCurate instances using this destination. Check Task Manager on
+   Windows or the process list on Linux for an instance that is still running.
+   Close database viewers that may have an open write transaction too.
+2. Reopen CCurate with the same directories. If a scan failed while the window
+   stayed open, use **Scan > Scan source** / **Ctrl+R** after resolving the
+   conflict. No catalog reset or import is required.
+3. If the error persists, inspect `DESTINATION/.ccurate/activity.log`. Database
+   errors include the primary/extended SQLite codes and failing operation, for
+   example `SQLite busy [5/5] during BEGIN IMMEDIATE`. Startup database failures
+   are logged here too, before the GUI session opens. Include the error and
+   preceding log lines in a report.
+
+`active session` means the destination's process lock is held. `SQLite busy` or
+`SQLite locked` describes a database connection/statement conflict, which may
+come from another process or another connection within the application. These
+messages do not by themselves establish database corruption. Failed commits and
+cancelled view queries release their unfinished transactions before the next
+request; a failed JSONL export leaves the previous published index intact.
 
 ## Portable index and browsing without the old drive
 
