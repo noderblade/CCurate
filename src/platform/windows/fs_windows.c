@@ -591,27 +591,41 @@ int cc_win_fstatvfs(int fd, struct statvfs *fs)
 }
 ssize_t cc_win_pread(int fd, void *buffer, size_t size, int64_t offset)
 {
-    /* A reopened handle has its own file pointer. Do not disturb a libarchive,
-     * libjpeg or FFmpeg reader which shares the original descriptor. */
-    HANDLE h =
-        ReOpenFile(cc_win_handle(fd), GENERIC_READ,
-                   FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, FILE_FLAG_OVERLAPPED);
-    if (h == INVALID_HANDLE_VALUE)
-        return cc_win_errno(GetLastError());
-    OVERLAPPED position = {0};
-    position.Offset = (DWORD)(uint64_t)offset;
-    position.OffsetHigh = (DWORD)((uint64_t)offset >> 32);
-    DWORD got = 0;
-    BOOL ok = ReadFile(h, buffer, (DWORD)(size > UINT_MAX ? UINT_MAX : size), &got, &position);
-    DWORD error = ok ? 0 : GetLastError();
-    if (!ok && error == ERROR_IO_PENDING) {
-        ok = GetOverlappedResult(h, &position, &got, TRUE);
-        error = ok ? 0 : GetLastError();
+    /* A bounded read-only mapping uses the inherited read capability. Reopening
+     * under a restricted token would incorrectly reject administrator-owned
+     * inputs. Mapping also leaves libarchive/libjpeg's shared file offset alone.
+     * These reads run in isolated preview workers; an in-page I/O fault is
+     * reported by the parent as a failed preview, never a completed copy. */
+    if (offset < 0) {
+        errno = EINVAL;
+        return -1;
     }
-    CloseHandle(h);
-    if (error == ERROR_HANDLE_EOF)
+    HANDLE input = cc_win_handle(fd);
+    LARGE_INTEGER length;
+    if (!GetFileSizeEx(input, &length))
+        return cc_win_errno(GetLastError());
+    if (!size || offset >= length.QuadPart)
         return 0;
-    return ok ? (ssize_t)got : cc_win_errno(error);
+    if ((uint64_t)size > (uint64_t)(length.QuadPart - offset))
+        size = (size_t)(length.QuadPart - offset);
+    if (size > UINT_MAX)
+        size = UINT_MAX;
+    SYSTEM_INFO system;
+    GetSystemInfo(&system);
+    uint64_t start = (uint64_t)offset - (uint64_t)offset % system.dwAllocationGranularity;
+    size_t skip = (size_t)((uint64_t)offset - start);
+    HANDLE mapping = CreateFileMappingW(input, NULL, PAGE_READONLY, 0, 0, NULL);
+    if (!mapping)
+        return cc_win_errno(GetLastError());
+    void *view =
+        MapViewOfFile(mapping, FILE_MAP_READ, (DWORD)(start >> 32), (DWORD)start, skip + size);
+    DWORD error = view ? 0 : GetLastError();
+    if (view) {
+        memcpy(buffer, (const unsigned char *)view + skip, size);
+        UnmapViewOfFile(view);
+    }
+    CloseHandle(mapping);
+    return view ? (ssize_t)size : cc_win_errno(error);
 }
 ssize_t cc_win_getrandom(void *buffer, size_t size, unsigned flags)
 {

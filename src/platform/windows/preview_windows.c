@@ -19,11 +19,19 @@ static int send_preview(Preview *p)
 static int restricted_worker(void)
 {
     JOBOBJECT_EXTENDED_LIMIT_INFORMATION limits;
+    DWORD required = JOB_OBJECT_LIMIT_JOB_MEMORY | JOB_OBJECT_LIMIT_ACTIVE_PROCESS |
+                     JOB_OBJECT_LIMIT_PROCESS_TIME | JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
     if (!QueryInformationJobObject(NULL, JobObjectExtendedLimitInformation, &limits, sizeof(limits),
                                    NULL) ||
-        !(limits.BasicLimitInformation.LimitFlags & JOB_OBJECT_LIMIT_JOB_MEMORY) ||
-        limits.JobMemoryLimit > 1024ULL * 1024 * 1024 ||
-        limits.BasicLimitInformation.ActiveProcessLimit != 1)
+        (limits.BasicLimitInformation.LimitFlags & required) != required ||
+        !limits.JobMemoryLimit || limits.JobMemoryLimit > 1024ULL * 1024 * 1024 ||
+        limits.BasicLimitInformation.ActiveProcessLimit != 1 ||
+        limits.BasicLimitInformation.PerProcessUserTimeLimit.QuadPart <= 0 ||
+        limits.BasicLimitInformation.PerProcessUserTimeLimit.QuadPart > 120000000)
+        return 0;
+    JOBOBJECT_BASIC_UI_RESTRICTIONS ui;
+    if (!QueryInformationJobObject(NULL, JobObjectBasicUIRestrictions, &ui, sizeof(ui), NULL) ||
+        (ui.UIRestrictionsClass & JOB_OBJECT_UILIMIT_ALL) != JOB_OBJECT_UILIMIT_ALL)
         return 0;
     HANDLE token;
     DWORD size = 0;

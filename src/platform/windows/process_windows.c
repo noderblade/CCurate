@@ -194,8 +194,9 @@ void cc_win_process_close(CCWinProcess *child, int terminate)
     if (terminate && child->process) {
         if (child->job)
             TerminateJobObject(child->job, 1);
-        else
-            TerminateProcess(child->process, 1);
+        /* Assignment to the Job Object may itself have failed. Always stop the
+         * suspended child as well instead of leaving an unassigned process. */
+        TerminateProcess(child->process, 1);
         WaitForSingleObject(child->process, 5000);
     }
     if (child->process)

@@ -85,8 +85,9 @@ existing reduced-resolution scanline decoder. Preview output is at most 1000 by
 
 Low integrity plus a Job Object is **not an AppContainer** and does not reproduce
 Linux's socket filter or per-scratch-file limit. It is resource and privilege
-restriction, not complete filesystem/network isolation. Restricted workers may
-be unable to reopen administrator-only inputs. Decoder refusal is visible in the
+restriction, not complete filesystem/network isolation. Workers use the inherited
+read-only input handle, including bounded mappings for positional reads, without
+reopening the source path under a different identity. Decoder refusal is visible in the
 preview and log; copying is independent of preview availability.
 
 ## Build from source
