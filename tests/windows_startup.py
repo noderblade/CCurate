@@ -105,9 +105,9 @@ class Startup(unittest.TestCase):
         # lookup and propagation of the application exit status.
         command = APP.parent / 'CCurate-Debug.cmd'
         comspec = Path(os.environ['SystemRoot']) / 'System32/cmd.exe'
-        cmdline = f'"{comspec}" /d /s /c ""{command}" -NoPause --version"'
-        result = subprocess.run(cmdline, capture_output=True, timeout=45,
-                                env=self.env, cwd=self.root)
+        result = subprocess.run([str(comspec), '/d', '/c', 'call',
+                                 str(command).replace('/', chr(92)), '-NoPause', '--version'],
+                                capture_output=True, timeout=45, env=self.env, cwd=self.root)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn(b'Process exit code: 0 (0x00000000)', result.stdout)
         self.assertIn('Application exited: status=0', self.read_log())
