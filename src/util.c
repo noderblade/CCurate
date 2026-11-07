@@ -136,16 +136,12 @@ char *join_path(const char *a, const char *b)
 }
 char *parent_path(const char *s)
 {
-#ifdef _WIN32
-    return cc_win_parent_path(s);
-#else
     char *r = xstrdup(s), *p = strrchr(r, '/');
     if (p)
         *p = 0;
     else
         *r = 0;
     return r;
-#endif
 }
 const char *base_name(const char *s)
 {

@@ -9,6 +9,8 @@
 #include <winioctl.h>
 #include <winternl.h>
 
+_Static_assert(sizeof(off_t) >= 8, "Windows builds require 64-bit file offsets");
+
 #ifndef FILE_OPEN
 #define FILE_OPEN 1
 #define FILE_CREATE 2
@@ -24,12 +26,17 @@
 #ifndef FILE_OPEN_REPARSE_POINT
 #define FILE_OPEN_REPARSE_POINT 0x00200000
 #endif
+#ifndef OBJ_DONT_REPARSE
+#define OBJ_DONT_REPARSE 0x1000
+#endif
 
 typedef NTSTATUS(NTAPI *CreateFileFn)(PHANDLE, ACCESS_MASK, POBJECT_ATTRIBUTES, PIO_STATUS_BLOCK,
                                       PLARGE_INTEGER, ULONG, ULONG, ULONG, ULONG, PVOID, ULONG);
 typedef ULONG(WINAPI *StatusErrorFn)(NTSTATUS);
+typedef NTSTATUS(NTAPI *SetFileFn)(HANDLE, PIO_STATUS_BLOCK, PVOID, ULONG, FILE_INFORMATION_CLASS);
 static CreateFileFn nt_create;
 static StatusErrorFn nt_error;
+static SetFileFn nt_set;
 static INIT_ONCE nt_once = INIT_ONCE_STATIC_INIT;
 static BOOL CALLBACK load_nt(PINIT_ONCE once, PVOID parameter, PVOID *context)
 {
@@ -39,7 +46,8 @@ static BOOL CALLBACK load_nt(PINIT_ONCE once, PVOID parameter, PVOID *context)
     HMODULE module = GetModuleHandleW(L"ntdll.dll");
     nt_create = (CreateFileFn)(void *)GetProcAddress(module, "NtCreateFile");
     nt_error = (StatusErrorFn)(void *)GetProcAddress(module, "RtlNtStatusToDosError");
-    return nt_create && nt_error;
+    nt_set = (SetFileFn)(void *)GetProcAddress(module, "NtSetInformationFile");
+    return nt_create && nt_error && nt_set;
 }
 
 int cc_win_errno(DWORD error)
@@ -223,7 +231,7 @@ HANDLE cc_win_relative_handle(int root, const char *leaf, ACCESS_MASK access, UL
     OBJECT_ATTRIBUTES object = {.Length = sizeof(object),
                                 .RootDirectory = parent,
                                 .ObjectName = &name,
-                                .Attributes = OBJ_CASE_INSENSITIVE};
+                                .Attributes = OBJ_CASE_INSENSITIVE | OBJ_DONT_REPARSE};
     IO_STATUS_BLOCK status;
     HANDLE h = INVALID_HANDLE_VALUE;
     NTSTATUS result = nt_create(
@@ -289,6 +297,10 @@ static DWORD file_access(int flags)
 {
     if (flags & O_PATH)
         return FILE_READ_ATTRIBUTES;
+    /* A directory anchor does not need enumeration/data access. Keeping that
+     * right off the anchor avoids an NTFS rename-target sharing conflict. */
+    if (flags & O_DIRECTORY)
+        return FILE_READ_ATTRIBUTES | FILE_TRAVERSE | READ_CONTROL;
     return ((flags & O_RDWR)     ? GENERIC_READ | GENERIC_WRITE
             : (flags & O_WRONLY) ? GENERIC_WRITE
                                  : GENERIC_READ) |
@@ -413,8 +425,8 @@ int cc_win_statx(int root, const char *leaf, int flags, unsigned mask, struct st
 int cc_win_mkdirat(int root, const char *leaf, mode_t mode)
 {
     (void)mode;
-    HANDLE h =
-        cc_win_relative_handle(root, leaf, GENERIC_READ, FILE_CREATE, FILE_DIRECTORY_FILE, 0);
+    HANDLE h = cc_win_relative_handle(root, leaf, file_access(O_DIRECTORY), FILE_CREATE,
+                                      FILE_DIRECTORY_FILE, 0);
     if (h == INVALID_HANDLE_VALUE)
         return -1;
     CloseHandle(h);
@@ -462,9 +474,11 @@ int cc_win_renameat2(int from, const char *a, int to, const char *b, unsigned fl
     info->RootDirectory = cc_win_handle(to);
     info->FileNameLength = (DWORD)bytes;
     memcpy(info->FileName, name, bytes);
-    int rc = SetFileInformationByHandle(h, FileRenameInfo, info, (DWORD)size)
-                 ? 0
-                 : cc_win_errno(GetLastError());
+    /* The native API accepts a handle-relative target. The Win32 wrapper on
+     * supported Windows versions can reject a non-NULL RootDirectory. */
+    IO_STATUS_BLOCK status;
+    NTSTATUS result = nt_set(h, &status, info, (ULONG)size, FileRenameInformation);
+    int rc = result < 0 ? cc_win_errno(nt_error(result)) : 0;
     free(name);
     free(info);
     CloseHandle(h);
@@ -578,6 +592,7 @@ ssize_t cc_win_getrandom(void *buffer, size_t size, unsigned flags)
 }
 struct CCWinDir {
     int fd, first, ended;
+    HANDLE reader;
     _Alignas(FILE_ID_BOTH_DIR_INFO) unsigned char buffer[65536];
     FILE_ID_BOTH_DIR_INFO *next;
     struct cc_win_dirent entry;
@@ -590,6 +605,15 @@ CCWinDir *cc_win_fdopendir(int fd)
         return NULL;
     }
     CCWinDir *dir = xmalloc(sizeof(*dir));
+    dir->reader =
+        ReOpenFile(cc_win_handle(fd), FILE_LIST_DIRECTORY | FILE_READ_ATTRIBUTES, FILE_SHARE_READ,
+                   FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT);
+    if (dir->reader == INVALID_HANDLE_VALUE) {
+        DWORD error = GetLastError();
+        free(dir);
+        cc_win_errno(error);
+        return NULL;
+    }
     dir->fd = fd;
     dir->first = 1;
     return dir;
@@ -599,10 +623,9 @@ struct cc_win_dirent *cc_win_readdir(CCWinDir *dir)
     if (dir->ended)
         return NULL;
     if (!dir->next) {
-        if (!GetFileInformationByHandleEx(cc_win_handle(dir->fd),
-                                          dir->first ? FileIdBothDirectoryRestartInfo
-                                                     : FileIdBothDirectoryInfo,
-                                          dir->buffer, sizeof(dir->buffer))) {
+        if (!GetFileInformationByHandleEx(
+                dir->reader, dir->first ? FileIdBothDirectoryRestartInfo : FileIdBothDirectoryInfo,
+                dir->buffer, sizeof(dir->buffer))) {
             DWORD error = GetLastError();
             dir->ended = 1;
             if (error != ERROR_NO_MORE_FILES)
@@ -629,6 +652,7 @@ struct cc_win_dirent *cc_win_readdir(CCWinDir *dir)
 }
 int cc_win_closedir(CCWinDir *dir)
 {
+    CloseHandle(dir->reader);
     int rc = _close(dir->fd);
     free(dir);
     return rc;

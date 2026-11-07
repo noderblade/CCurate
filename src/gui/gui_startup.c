@@ -40,7 +40,11 @@ static void browse(Rid button, void *data)
     int side = button == s->buttons[1];
     char *initial = *s->roots[side] ? xstrdup(*s->roots[side]) : NULL;
     if (!initial && side && *s->roots[0]) {
+#ifdef _WIN32
+        initial = cc_win_parent_path(*s->roots[0]);
+#else
         initial = parent_path(*s->roots[0]);
+#endif
         if (!*initial) {
             free(initial);
             initial = xstrdup("/");

@@ -51,25 +51,32 @@ static HANDLE low_token(void)
 {
     HANDLE current = NULL, token = NULL;
     PSID sid = NULL;
-    if (!OpenProcessToken(GetCurrentProcess(), TOKEN_DUPLICATE | TOKEN_QUERY | TOKEN_ASSIGN_PRIMARY,
-                          &current))
+    if (!OpenProcessToken(
+            GetCurrentProcess(),
+            TOKEN_DUPLICATE | TOKEN_QUERY | TOKEN_ASSIGN_PRIMARY | TOKEN_ADJUST_DEFAULT, &current))
         return NULL;
     if (!CreateRestrictedToken(current, DISABLE_MAX_PRIVILEGE | LUA_TOKEN, 0, NULL, 0, NULL, 0,
                                NULL, &token)) {
+        DWORD error = GetLastError();
         CloseHandle(current);
+        SetLastError(error);
         return NULL;
     }
     CloseHandle(current);
     if (!ConvertStringSidToSidW(L"S-1-16-4096", &sid)) {
+        DWORD error = GetLastError();
         CloseHandle(token);
+        SetLastError(error);
         return NULL;
     }
     TOKEN_MANDATORY_LABEL label = {{sid, SE_GROUP_INTEGRITY}};
     BOOL ok =
         SetTokenInformation(token, TokenIntegrityLevel, &label, sizeof(label) + GetLengthSid(sid));
+    DWORD error = GetLastError();
     LocalFree(sid);
     if (!ok) {
         CloseHandle(token);
+        SetLastError(error);
         return NULL;
     }
     return token;
@@ -119,8 +126,10 @@ int cc_win_spawn(CCWinProcess *child, int input, const char *const *arguments, i
     DWORD flags = EXTENDED_STARTUPINFO_PRESENT | CREATE_SUSPENDED | CREATE_NO_WINDOW;
     if (restricted) {
         token = low_token();
+        if (!token)
+            goto failure;
         child->job = CreateJobObjectW(NULL, NULL);
-        if (!token || !child->job)
+        if (!child->job)
             goto failure;
         JOBOBJECT_EXTENDED_LIMIT_INFORMATION limits = {0};
         limits.BasicLimitInformation.LimitFlags =
@@ -176,8 +185,9 @@ failure:
     if (token)
         CloseHandle(token);
     cc_win_process_close(child, 1);
+    int result = cc_win_errno(error);
     SetLastError(error);
-    return cc_win_errno(error);
+    return result;
 }
 void cc_win_process_close(CCWinProcess *child, int terminate)
 {

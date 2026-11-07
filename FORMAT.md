@@ -2,7 +2,9 @@
 
 The file `.ccurate/archive.jsonl` is UTF-8 JSON Lines. Each line is one
 complete JSON object. This is a full export, not a journal to replay. Publishing
-uses a temporary file, fsync, rename, and a directory fsync. SQLite remains the
+uses a temporary file, fsync, rename, and, on Linux, a directory fsync. Windows
+flushes file data but has weaker namespace power-loss durability, as described
+in [the Windows guide](docs/WINDOWS_PORT.md). SQLite remains the
 authoritative transactional session while a batch is in progress.
 
 ## Records
@@ -41,6 +43,16 @@ Entry metadata:
   when the filesystem exposes them. `metadata_error` records incomplete reads.
 - `current_at_export`: whether this version was the latest observed version of
   its source path. Older retained versions are still valid archive entries.
+
+Windows uses the same schema. `dev` is the volume serial number and `ino` the
+64-bit file ID; `uid` and `gid` are -1, and mode bits are synthetic display
+values. The `xattrs` array carries `windows.file_attributes` (hexadecimal),
+`windows.security_descriptor_sddl` (owner/group/DACL SDDL), and `windows.streams`
+(a JSON array of stream names and sizes), with their names and UTF-8 values
+base64-encoded normally. These records preserve original metadata; they do not
+reapply NTFS security settings to destination files. Named stream bytes are not
+supported by this port, and such source files cannot be marked secured. Do not
+interpret a stream listing as retention of stream content.
 
 The GUI displays the newest retained version at a path and lets the user cycle
 older versions. These versions are not a global filesystem snapshot. Directories

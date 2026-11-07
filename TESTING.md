@@ -162,11 +162,12 @@ unchanged. No Windows source file is compiled into the Linux targets.
 ## Native Windows checks
 
 `tests/windows_integration.py` uses real disposable NTFS directories and the
-native executable. Its 16 cases cover binary bytes and SHA-512, deduplication,
+native executable. Its 17 cases cover binary bytes and SHA-512, deduplication,
 Unicode/emoji names, hidden/system attributes, long paths, case collisions,
 traversal refusal, invalid root pairs, session locking, changed source versions,
 review/reject/restore, complete directories, target moves, publication recovery,
-JSONL rebuild, metadata, named-stream refusal, junctions and audit corruption.
+JSONL rebuild, foreign POSIX historical names, metadata, named-stream refusal,
+junctions and audit corruption.
 Several related assertions share a test case.
 
 `tests/windows_previews.py` drives the real restricted subprocess through seven

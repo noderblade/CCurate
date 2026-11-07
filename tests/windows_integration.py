@@ -167,6 +167,24 @@ class WindowsCuration(unittest.TestCase):
         self.run_app('audit', source='-', dest=fresh)
         self.assertIn(b'B/copy.bin', self.run_app('list', 'B', '--history', source='-', dest=fresh).stdout)
 
+    def test_historical_posix_names_are_not_windows_paths(self):
+        self.run_app('copy', 'A', '', '--complete')
+        records = self.manifest()
+        for record in records:
+            if record['type'] == 'entry' and record.get('path', '').startswith('A'):
+                path = record['path'].replace('A', 'C:', 1)
+                record['path'] = path
+                record['path_b64'] = base64.b64encode(path.encode()).decode()
+        manifest = self.root / 'foreign.jsonl'
+        manifest.write_text(''.join(json.dumps(r) + '\n' for r in records), encoding='utf-8')
+        fresh = self.root / 'foreign'; fresh.mkdir()
+        shutil.copytree(self.dst / 'A', fresh / 'A')
+        self.run_app('import', str(manifest), source='-', dest=fresh)
+        listing = self.run_app('list', 'C:', '--history', source='-', dest=fresh).stdout
+        self.assertIn(b'C:/one.txt', listing)
+        self.assertIn(b'C:/empty', listing)
+        self.run_app('audit', source='-', dest=fresh)
+
     def test_native_metadata_is_retained(self):
         self.run_app('copy', 'A/one.txt', '')
         entry = next(r for r in self.manifest() if r.get('path') == 'A/one.txt' and r['type'] == 'entry')
