@@ -22,6 +22,11 @@ static void stop(int sig)
 }
 static void usage(void)
 {
+#ifdef _WIN32
+    puts("Windows diagnostics: ccurate --debug [normal arguments]\n"
+         "Startup logs: %LOCALAPPDATA%\\CCurate\\Logs (override: CCURATE_LOG_DIR)\n"
+         "For loader failures, run CCurate-Debug.cmd from the extracted package.\n");
+#endif
     puts("CCurate 0.1.0\n\n"
          "GUI:     ccurate [SOURCE [DESTINATION]]\n"
          "         Missing folders are chosen in a graphical browser.\n"

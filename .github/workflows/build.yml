@@ -115,6 +115,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Packaged test interpreter could not start' }
           & $python tests/windows_integration.py dist/CCurate-windows-x64/ccurate.exe
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & $python tests/windows_startup.py dist/CCurate-windows-x64/ccurate.exe 1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           Copy-Item build-windows/previewcheck.exe dist/CCurate-windows-x64/previewcheck.exe
           try {
             & $python tests/windows_previews.py dist/CCurate-windows-x64/previewcheck.exe

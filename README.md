@@ -24,6 +24,10 @@ Windows checks pass. The Windows port is experimental; see the
 
 ![CCurate workspace with source and destination panes, scan progress, image preview and file details](docs/images/ccurate-workspace.png)
 
+**Windows exits without a window?** Run `CCurate-Debug.cmd` from the extracted
+package. Logs are saved in `%LOCALAPPDATA%\CCurate\Logs`, including failures before
+the application can start. See [startup diagnostics](docs/WINDOWS_PORT.md#startup-diagnostics).
+
 ## The problem
 
 Years of projects, documents, photos, downloads and copied backups rarely form a

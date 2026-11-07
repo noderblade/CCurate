@@ -5,6 +5,7 @@
 #include <string.h>
 #include <unistd.h>
 #ifdef _WIN32
+#include "platform/windows/diagnostics_windows.h"
 #include "platform/windows/dialog_windows.h"
 #endif
 
@@ -153,6 +154,9 @@ int gui_choose_roots(char **source, char **destination, int historical, const ch
 {
     Startup s = {.roots = {source, destination}, .historical = historical};
     RInitDesc init = {.backend = R_BACKEND_VULKAN, .app_name = "CCurate", .worker_threads = 2};
+#ifdef _WIN32
+    cc_win_startup_note("Initializing the folder chooser (Vulkan / display).");
+#endif
     if (!Rinit_ex(&init)) {
         fputs("CCurate could not initialize the folder chooser (Vulkan / display).\n", stderr);
         return -1;
@@ -165,6 +169,9 @@ int gui_choose_roots(char **source, char **destination, int historical, const ch
         Rshutdown();
         return -1;
     }
+#ifdef _WIN32
+    cc_win_startup_note("Folder chooser window created; waiting for its first frame.");
+#endif
     Rwindow_set_min_size(s.window, 860, 580);
     Rid border = Rwidget_create(R_WIDGET_BORDER), box = Rwidget_create(R_WIDGET_VBOX);
     Rborder_set_padding(border, 28, 24, 28, 24);
@@ -225,8 +232,11 @@ int gui_choose_roots(char **source, char **destination, int historical, const ch
     Rwindow_set_content(s.window, border);
     Rwindow_set_event_hook(s.window, event, &s);
     Rwidget_focus(s.buttons[historical || *source ? 1 : 0]);
-    while (!s.done && Rwait_frame(.05))
-        ;
+    while (!s.done && Rwait_frame(.05)) {
+#ifdef _WIN32
+        cc_win_startup_ready();
+#endif
+    }
     Rshutdown();
     return s.accepted;
 }
