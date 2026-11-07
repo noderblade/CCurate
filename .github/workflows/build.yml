@@ -39,6 +39,7 @@ jobs:
     timeout-minutes: 45
     env:
       CCURATE_WINDOWS_DIAGNOSTICS: '1'
+      VK_LOADER_DEBUG: error,warn,driver
     defaults:
       run:
         shell: msys2 {0}

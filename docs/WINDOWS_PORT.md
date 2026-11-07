@@ -24,9 +24,13 @@ PowerShell examples:
 ```powershell
 .\ccurate.exe 'E:\Old archive' 'F:\Curated'
 .\ccurate.exe --browse 'F:\Curated'
-.\ccurate.exe --cli 'E:\Old archive' 'F:\Curated' scan
-.\ccurate.exe --cli 'E:\Old archive' 'F:\Curated' audit
+$result = Start-Process .\ccurate.exe -ArgumentList '--cli "E:\Old archive" "F:\Curated" scan' -Wait -PassThru -NoNewWindow
+$result.ExitCode
 ```
+
+The executable uses the Windows GUI subsystem. For scripted CLI commands,
+`Start-Process -Wait -PassThru` waits for completion and exposes the exit code;
+replace `scan` with `audit` to verify the destination.
 
 Prefer ordinary desktop execution. Administrator execution can read additional
 files permitted by Windows, but does not bypass sharing violations or encryption.
@@ -104,6 +108,9 @@ The packager walks PE import tables recursively, includes dynamically loaded
 image loaders and their resources, rejects an MSYS runtime dependency, and emits
 a SHA-256 `FILES.json` manifest and third-party license files. A complete package
 must also pass integration and GUI checks with MSYS2 removed from `PATH`.
+CI stages and registers Mesa's software Vulkan driver on its disposable runner;
+it is not
+bundled with the application or used to satisfy application DLL dependencies.
 
 ## Source separation
 

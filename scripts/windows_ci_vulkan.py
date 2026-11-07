@@ -7,6 +7,7 @@ import re
 import shutil
 import subprocess
 import sys
+import winreg
 
 prefix = Path(shutil.which('gcc')).resolve().parent.parent
 destination = Path(sys.argv[1]).resolve()
@@ -29,5 +30,13 @@ while queue:
 assert 'msys-2.0.dll' not in copied
 manifest = json.loads((prefix / 'share/vulkan/icd.d/lvp_icd.x86_64.json').read_text())
 manifest['ICD']['library_path'] = str(destination / available['vulkan_lvp.dll'].name)
-(destination / 'lvp_icd.json').write_text(json.dumps(manifest), encoding='utf-8')
+manifest_path = destination / 'lvp_icd.json'
+manifest_path.write_text(json.dumps(manifest), encoding='utf-8')
+# Hosted runners use a high-integrity account. Vulkan intentionally ignores
+# driver-path environment overrides there, so register this test-only ICD in
+# the disposable runner's normal machine-wide driver list.
+assert os.environ.get('GITHUB_ACTIONS') == 'true', 'Only run this helper on a disposable GitHub runner'
+with winreg.CreateKeyEx(winreg.HKEY_LOCAL_MACHINE, r'SOFTWARE\Khronos\Vulkan\Drivers',
+                        0, winreg.KEY_SET_VALUE | winreg.KEY_WOW64_64KEY) as key:
+    winreg.SetValueEx(key, str(manifest_path).replace('/', '\\'), 0, winreg.REG_DWORD, 0)
 print(f'Staged software Vulkan and {len(copied) - 1} driver dependencies at {destination}')

@@ -92,11 +92,19 @@ int desktop_open_worker(int root, int result_fd, const char *relative)
         strcpy(error, "Cannot resolve the file for the desktop.");
     if (!*error) {
         HRESULT initialized = CoInitializeEx(NULL, COINIT_APARTMENTTHREADED);
+        /* Shell associations expect a normal DOS/UNC path rather than the
+         * extended prefix returned by GetFinalPathNameByHandleW. */
+        const wchar_t *shell_path = path;
+        if (!wcsncmp(path, L"\\\\?\\UNC\\", 8)) {
+            path[6] = L'\\';
+            shell_path = path + 6;
+        } else if (!wcsncmp(path, L"\\\\?\\", 4))
+            shell_path = path + 4;
         SHELLEXECUTEINFOW info = {0};
         info.cbSize = sizeof(info);
         info.fMask = SEE_MASK_NOASYNC | SEE_MASK_FLAG_NO_UI;
         info.lpVerb = L"open";
-        info.lpFile = path;
+        info.lpFile = shell_path;
         info.nShow = SW_SHOWNORMAL;
         if (!ShellExecuteExW(&info))
             snprintf(error, sizeof(error), "Default application launch failed (Windows error %lu).",

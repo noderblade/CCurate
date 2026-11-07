@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Real Win32/Vulkan smoke test, using only disposable source/destination data."""
 from pathlib import Path
+from contextlib import closing
 import ctypes as c
 from ctypes import wintypes as w
 import os
@@ -85,7 +86,7 @@ with tempfile.TemporaryDirectory(prefix='ccurate-windows-gui-') as temporary:
             assert (dest / 'document.txt').read_bytes() == original
             key(ord('P'), 0x11)
             def reviewed():
-                with sqlite3.connect(dest / '.ccurate/catalog.sqlite') as db:
+                with closing(sqlite3.connect(dest / '.ccurate/catalog.sqlite')) as db:
                     return db.execute("SELECT reviewed FROM entries WHERE path='document.txt'").fetchone() == (1,)
             until(reviewed)
             key(0x70); snap('04-help', win); key(0x70)

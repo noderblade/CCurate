@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Native Windows black-box checks. Every filesystem mutation uses a fixture."""
 import base64
+from contextlib import closing
 import hashlib
 import json
 import msvcrt
@@ -48,7 +49,7 @@ class WindowsCuration(unittest.TestCase):
         return result
 
     def sql(self, query, params=()):
-        with sqlite3.connect(self.dst / '.ccurate/catalog.sqlite') as db:
+        with closing(sqlite3.connect(self.dst / '.ccurate/catalog.sqlite')) as db, db:
             return db.execute(query, params).fetchall()
 
     def manifest(self):
@@ -225,7 +226,10 @@ class WindowsCuration(unittest.TestCase):
         outside = self.root / 'outside'; outside.mkdir()
         (outside / 'precious.txt').write_bytes(b'untouched')
         for link in (self.src / 'junction', self.dst / 'escape'):
-            subprocess.run(['cmd', '/c', 'mklink', '/J', str(link), str(outside)], check=True, capture_output=True)
+            result = subprocess.run(['cmd.exe', '/d', '/c', 'mklink', '/J',
+                                     str(link).replace('/', '\\'), str(outside).replace('/', '\\')],
+                                    capture_output=True)
+            self.assertEqual(result.returncode, 0, result.stderr.decode(errors='replace'))
         try:
             self.run_app('scan')
             self.assertEqual(self.sql("SELECT kind FROM entries WHERE path='junction'"), [('symlink',)])

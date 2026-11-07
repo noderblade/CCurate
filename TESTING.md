@@ -179,8 +179,10 @@ refusal of an unrestricted worker. Fixture SHA-512 values must remain unchanged.
 picker and cancellation, then copies with F5, marks reviewed, opens help/history,
 saves the session and audits the result. Screenshots and diagnostics are retained.
 
-The packaging check runs the complete integration and GUI scripts against the
-staged executable with only Windows system directories on its `PATH`. This is
+The packaging check runs the complete integration, restricted preview and GUI
+scripts against the staged runtime. Core and preview checks have only Windows
+system directories on `PATH`; the GUI adds an isolated software Vulkan driver
+directory, with the application toolchain still absent. This is
 stronger than link success, but still runs on the CI host rather than a fresh
 consumer Windows installation. See [the Windows guide](docs/WINDOWS_PORT.md)
 for unsupported filesystem features and preview isolation differences.
