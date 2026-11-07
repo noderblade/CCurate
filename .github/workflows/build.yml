@@ -17,7 +17,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: Install dependencies
         run: |
-          sudo apt-get update
+          sudo apt-get -o Acquire::Retries=2 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 update
           sudo apt-get install -y ninja-build pkg-config libssl-dev libsqlite3-dev libarchive-dev libmagic-dev libx11-dev libvulkan-dev libfontconfig1-dev libglib2.0-dev libjpeg-dev libgdk-pixbuf-2.0-dev libpoppler-glib-dev libavformat-dev libavcodec-dev libavutil-dev libswscale-dev mesa-vulkan-drivers xvfb xdotool python3-pil python3-fonttools fonts-urw-base35
       - name: Build full and core configurations
         run: |
@@ -66,6 +66,7 @@ jobs:
             mingw-w64-ucrt-x86_64-poppler
             mingw-w64-ucrt-x86_64-ffmpeg
       - name: Build native executable and tests
+        id: build
         run: |
           cmake -S . -B build-windows -G Ninja -DCMAKE_BUILD_TYPE=Release -DPython3_EXECUTABLE="$(cygpath -m "$(command -v python)")"
           cmake --build build-windows --parallel 4 -- -k 0
@@ -75,8 +76,12 @@ jobs:
         run: |
           echo "CCURATE_TEST_PYTHON=$(cygpath -w "$(command -v python)")" >> "$GITHUB_ENV"
           ctest --test-dir build-windows --output-on-failure
-          ctest --test-dir build-windows-core --output-on-failure
+      - name: Native Windows core regression suite
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: ctest --test-dir build-windows-core --output-on-failure
       - name: Select software Vulkan for desktop tests
+        id: vulkan
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         shell: pwsh
         run: |
           $roots = @("$env:ProgramFiles\Google\Chrome\Application", "${env:ProgramFiles(x86)}\Microsoft\Edge\Application")
@@ -85,10 +90,14 @@ jobs:
           "VK_ICD_FILENAMES=$($icd.FullName)" >> $env:GITHUB_ENV
           Write-Output "Testing with $($icd.FullName)"
       - name: Native Windows GUI regression
+        if: ${{ !cancelled() && steps.vulkan.outcome == 'success' }}
         run: python tests/windows_gui.py build-windows/ccurate.exe test-results/windows-gui
       - name: Package native runtime
+        id: package
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         run: python scripts/package_windows.py build-windows/ccurate.exe dist/CCurate-windows-x64
       - name: Test packaged runtime without MSYS2 on PATH
+        if: ${{ !cancelled() && steps.package.outcome == 'success' }}
         shell: pwsh
         run: |
           $python = $env:CCURATE_TEST_PYTHON

@@ -10,8 +10,16 @@ static FILE_STREAM_INFO *streams(int fd, int *unsupported)
     *unsupported = 0;
     for (DWORD size = 4096; size <= 4 * 1024 * 1024; size *= 2) {
         FILE_STREAM_INFO *info = xmalloc(size);
-        if (GetFileInformationByHandleEx(cc_win_handle(fd), FileStreamInfo, info, size))
+        if (GetFileInformationByHandleEx(cc_win_handle(fd), FileStreamInfo, info, size)) {
+            /* A directory with no streams can return success and HANDLE_EOF,
+             * without populating a stream record. The buffer is zeroed. */
+            if (!info->StreamNameLength) {
+                free(info);
+                *unsupported = 1;
+                return NULL;
+            }
             return info;
+        }
         DWORD error = GetLastError();
         free(info);
         if (error == ERROR_HANDLE_EOF || error == ERROR_INVALID_PARAMETER ||

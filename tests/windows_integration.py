@@ -37,7 +37,12 @@ class WindowsCuration(unittest.TestCase):
         result = subprocess.run([APP, '--cli', str(source or self.src), str(dest or self.dst), *args],
                                 capture_output=True, timeout=60)
         if ok:
-            self.assertEqual(result.returncode, 0, result.stderr.decode('utf-8', 'replace'))
+            if result.returncode:
+                state = Path(dest or self.dst) / '.ccurate'
+                details = (result.stdout + result.stderr).decode('utf-8', 'replace')
+                if (state / 'activity.log').exists():
+                    details += '\n' + (state / 'activity.log').read_text(errors='replace')[-12000:]
+                self.fail(details)
         else:
             self.assertNotEqual(result.returncode, 0, result.stdout.decode('utf-8', 'replace'))
         return result
