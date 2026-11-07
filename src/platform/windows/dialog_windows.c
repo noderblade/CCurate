@@ -3,6 +3,7 @@
 #include "platform/windows/dialog_windows.h"
 #include "curator.h"
 #include "platform/windows/native_windows.h"
+#include <objbase.h>
 #include <shobjidl.h>
 
 static const GUID file_open_class = {

@@ -142,5 +142,4 @@ Every push and pull request runs two independent jobs:
 A green compile alone is insufficient. Both jobs must pass before integrating
 platform work into the primary branch. See [TESTING.md](../TESTING.md) for the
 recorded results and remaining validation limits. CI artifacts contain logs and
-Windows GUI screenshots; no source archive or package includes local agent
-instruction files.
+Windows GUI screenshots.

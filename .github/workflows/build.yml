@@ -68,7 +68,7 @@ jobs:
       - name: Build native executable and tests
         run: |
           cmake -S . -B build-windows -G Ninja -DCMAKE_BUILD_TYPE=Release
-          cmake --build build-windows --parallel 4
+          cmake --build build-windows --parallel 4 -- -k 0
       - name: Native Windows regression suite
         run: |
           echo "CCURATE_TEST_PYTHON=$(cygpath -w "$(command -v python)")" >> "$GITHUB_ENV"

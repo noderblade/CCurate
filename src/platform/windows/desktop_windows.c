@@ -1,6 +1,7 @@
 #include "curator.h"
 #include "desktop_open.h"
 #include "platform/windows/process_windows.h"
+#include <objbase.h>
 #include <shellapi.h>
 
 int desktop_open_start(DesktopOpen *job, int root, const char *relative)

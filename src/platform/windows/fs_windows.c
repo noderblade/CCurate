@@ -578,7 +578,7 @@ ssize_t cc_win_getrandom(void *buffer, size_t size, unsigned flags)
 }
 struct CCWinDir {
     int fd, first, ended;
-    unsigned char buffer[65536];
+    _Alignas(FILE_ID_BOTH_DIR_INFO) unsigned char buffer[65536];
     FILE_ID_BOTH_DIR_INFO *next;
     struct cc_win_dirent entry;
 };
@@ -711,27 +711,6 @@ char *cc_win_strcasestr(const char *text, const char *needle)
         if (!_strnicmp(text, needle, length))
             return (char *)text;
     return length ? NULL : (char *)text;
-}
-int cc_win_valid_relative(const char *path, int empty)
-{
-    if (!path || (!*path && !empty) || *path == '/' || strpbrk(path, "\\:"))
-        return 0;
-    wchar_t *wide = cc_win_wide(path);
-    if (!wide)
-        return 0;
-    free(wide);
-    for (const char *p = path; *p;) {
-        const char *end = strchr(p, '/');
-        size_t n = end ? (size_t)(end - p) : strlen(p);
-        if (!n || (n == 1 && p[0] == '.') || (n == 2 && p[0] == '.' && p[1] == '.'))
-            return 0;
-        if (!end)
-            break;
-        p = end + 1;
-        if (!*p)
-            return 0;
-    }
-    return 1;
 }
 int cc_win_descendant(const char *path, const char *parent)
 {

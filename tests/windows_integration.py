@@ -99,6 +99,21 @@ class WindowsCuration(unittest.TestCase):
             self.run_app('mkdir', path, ok=False)
         self.assertFalse((self.root / 'outside').exists())
 
+    def test_invalid_root_pairs_never_create_session(self):
+        fresh = self.root / 'untouched'; fresh.mkdir()
+        for source, destination in ((fresh, fresh), (fresh, str(fresh).upper()),
+                                    (fresh, self.root)):
+            self.run_app('scan', source=source, dest=destination, ok=False)
+            self.assertFalse((fresh / '.ccurate').exists())
+            self.assertFalse((self.root / '.ccurate').exists())
+
+    def test_audit_detects_destination_corruption(self):
+        self.run_app('copy', 'A/one.txt', '')
+        (self.dst / 'one.txt').write_bytes(b'damaged destination bytes')
+        self.run_app('audit', ok=False)
+        self.assertNotEqual(self.sql('SELECT state FROM objects WHERE dest=\'one.txt\''), [('verified',)])
+        self.assertEqual((self.src / 'A/one.txt').read_bytes(), self.data)
+
     def test_session_lock(self):
         with (self.dst / '.ccurate/session.lock').open('r+b', buffering=0) as lock:
             msvcrt.locking(lock.fileno(), msvcrt.LK_NBLCK, 1)

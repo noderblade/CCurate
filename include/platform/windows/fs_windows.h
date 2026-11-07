@@ -105,7 +105,6 @@ char *cc_win_realpath(const char *path, char *resolved);
 char *cc_win_getcwd(char *buffer, size_t size);
 FILE *cc_win_fopen(const char *path, const char *mode);
 char *cc_win_strcasestr(const char *haystack, const char *needle);
-int cc_win_valid_relative(const char *path, int allow_empty);
 int cc_win_descendant(const char *path, const char *parent);
 char *cc_win_parent_path(const char *path);
 char *cc_win_attributes(int fd, char error[256]);
