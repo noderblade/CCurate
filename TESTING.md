@@ -103,6 +103,12 @@ python3 tests/gui_scroll_sort.py build/ccurate
 python3 tests/gui_startup.py build/ccurate
 ```
 
+The live-listing/cancellation GUI test compiles `tests/enumeration_gate.c` as a
+temporary preload fixture. It pauses source metadata enumeration after committed
+inventory batches until the test cancels through the UI, avoiding assumptions
+about directory speed. The production application and build are unchanged.
+
+
 The startup suite checks that cancelling or rejecting equal roots creates no
 session and that starting with chosen roots reaches the workspace and completes
 the background scan. It also exercises Raven shutdown/reinitialization between

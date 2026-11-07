@@ -13,11 +13,17 @@ with tempfile.TemporaryDirectory(prefix='ccurate-actions-') as t:
  root=Path(t); src=root/'source'; dst=root/'destination'; src.mkdir(); dst.mkdir()
  for i in range(20000): (src/f'doc-{i:05}.txt').write_text(f'Archive document {i}\n')
  env=os.environ.copy(); env.update(DISPLAY='127.0.0.1:190',RAVEN_WINDOW_SYSTEM='x11')
+ gate,ready,hook=root/'enumeration.gate',root/'enumeration.ready',root/'enumeration_gate.so'
+ gate.touch()
+ sp.run(['cc','-shared','-fPIC','-O2','-Wall','-Wextra',
+         str(Path(__file__).with_name('enumeration_gate.c')),'-ldl','-o',str(hook)],check=True)
+ app_env=dict(env,CCURATE_TEST_ENUM_GATE=str(gate),CCURATE_TEST_ENUM_READY=str(ready),
+              LD_PRELOAD=':'.join(filter(None,[env.get('LD_PRELOAD'),str(hook)])))
  with (root/'x.log').open('w') as xl, (root/'app.log').open('w') as al:
   x=sp.Popen(['Xvfb',':190','-screen','0','1920x1200x24','-nolisten','unix','-nolisten','local','-listen','tcp','-ac'],env=env,stdout=xl,stderr=xl)
   p=None
   try:
-   time.sleep(.5); p=sp.Popen([app,src,dst],env=env,stdout=al,stderr=al)
+   time.sleep(.5); p=sp.Popen([app,src,dst],env=app_env,stdout=al,stderr=al)
    def xd(*args): return sp.run(['xdotool',*map(str,args)],env=env,check=True,capture_output=True).stdout.decode().strip()
    def snap(name):
     if screens: ImageGrab.grab(xdisplay=env['DISPLAY']).save(screens/(name+'.png'))
@@ -37,6 +43,7 @@ with tempfile.TemporaryDirectory(prefix='ccurate-actions-') as t:
    until(lambda: xd('search','--name','CCurate'))
    win=xd('search','--name','CCurate').splitlines()[-1]
    xd('windowfocus',win); xd('windowsize',win,1920,1200)
+   until(lambda: ready.exists())
    until(lambda: sql('select count(*) from discoveries')[0]>128)
    time.sleep(1.1)
    assert sql('select count(*) from versions')==(0,), 'Expected enumeration to still be running'
@@ -53,6 +60,8 @@ with tempfile.TemporaryDirectory(prefix='ccurate-actions-') as t:
    menu(1,0,True); snap('02-scan-menu-help')
    # Cancel through the mouse menu (last row), not through Escape.
    click(520,1200-42-(42+6*29+100)+40+5*29+14)
+   gate.unlink()  # Let the scanner observe the cancellation requested by the UI.
+   until(lambda: 'Scan cancelled' in (dst/'.ccurate/activity.log').read_text())
    time.sleep(.7)
    assert sql("select value from settings where key='scan_complete'")==('0',)
    menu(1,0)
