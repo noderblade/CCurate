@@ -15,14 +15,21 @@
 static HANDLE logfile = INVALID_HANDLE_VALUE, console = INVALID_HANDLE_VALUE;
 static HANDLE reader, pump;
 static wchar_t log_path[32768];
-static int saved_stderr = -1, capturing, allocated_console, graphical_start, had_output;
+static int stderr_fd = -1, saved_stderr = -1, capturing, allocated_console, graphical_start,
+           had_output;
 static LONG ready;
 static LPTOP_LEVEL_EXCEPTION_FILTER previous_filter;
 
 static int valid_handle(HANDLE handle)
 {
     DWORD flags;
-    return handle && handle != INVALID_HANDLE_VALUE && GetHandleInformation(handle, &flags);
+    return handle && handle != INVALID_HANDLE_VALUE && (intptr_t)handle != -2 &&
+           GetHandleInformation(handle, &flags);
+}
+static HANDLE stream_handle(FILE *stream)
+{
+    int fd = _fileno(stream);
+    return fd >= 0 ? (HANDLE)_get_osfhandle(fd) : INVALID_HANDLE_VALUE;
 }
 static void write_handle(HANDLE handle, const char *text, DWORD size)
 {
@@ -136,8 +143,8 @@ void cc_win_diagnostics_start(int debug, int graphical)
     graphical_start = graphical;
     /* Attach for ordinary GUI invocations too. Preserve redirected descriptors;
      * never replace a caller's stdout/stderr pipe with CONOUT$. */
-    int have_out = valid_handle((HANDLE)_get_osfhandle(1));
-    int have_err = valid_handle((HANDLE)_get_osfhandle(2));
+    int have_out = valid_handle(stream_handle(stdout));
+    int have_err = valid_handle(stream_handle(stderr));
     had_output = have_out || have_err;
     if (!GetConsoleCP()) {
         if (!AttachConsole(ATTACH_PARENT_PROCESS) && debug && !had_output)
@@ -149,31 +156,32 @@ void cc_win_diagnostics_start(int debug, int graphical)
             freopen_s(&stream, "CONOUT$", "w", stdout);
         if (!have_err)
             freopen_s(&stream, "CONOUT$", "w", stderr);
-        if (!valid_handle((HANDLE)_get_osfhandle(0)))
+        if (!valid_handle(stream_handle(stdin)))
             freopen_s(&stream, "CONIN$", "r", stdin);
         SetConsoleOutputCP(CP_UTF8);
         had_output = 1;
     }
-    /* Reserve all three CRT slots before opening any other descriptors. GUI
-     * launches without a console use the special -2 handle, not just -1. */
+    /* UCRT's unattached standard streams can have fileno -2. Reopening
+     * them may assign descriptors other than 0/1/2: always follow the FILE's
+     * actual descriptor, including when redirecting stderr to the log pipe. */
     FILE *streams[] = {stdin, stdout, stderr};
-    for (int fd = 0; fd < 3; fd++)
-        if (!valid_handle((HANDLE)_get_osfhandle(fd))) {
+    DWORD handles[] = {STD_INPUT_HANDLE, STD_OUTPUT_HANDLE, STD_ERROR_HANDLE};
+    for (int i = 0; i < 3; i++) {
+        if (!valid_handle(stream_handle(streams[i]))) {
             FILE *stream;
-            freopen_s(&stream, "NUL", fd ? "w" : "r", streams[fd]);
+            freopen_s(&stream, "NUL", i ? "w" : "r", streams[i]);
         }
-    for (int fd = 0; fd < 3; fd++)
-        if (valid_handle((HANDLE)_get_osfhandle(fd))) {
-            _setmode(fd, _O_BINARY);
-            SetStdHandle(fd == 0   ? STD_INPUT_HANDLE
-                         : fd == 1 ? STD_OUTPUT_HANDLE
-                                   : STD_ERROR_HANDLE,
-                         (HANDLE)_get_osfhandle(fd));
+        HANDLE handle = stream_handle(streams[i]);
+        if (valid_handle(handle)) {
+            _setmode(_fileno(streams[i]), _O_BINARY);
+            SetStdHandle(handles[i], handle);
         }
-    if (valid_handle((HANDLE)_get_osfhandle(2))) {
-        saved_stderr = _dup(2);
-        DuplicateHandle(GetCurrentProcess(), (HANDLE)_get_osfhandle(2), GetCurrentProcess(),
-                        &console, 0, FALSE, DUPLICATE_SAME_ACCESS);
+    }
+    stderr_fd = _fileno(stderr);
+    if (valid_handle(stream_handle(stderr))) {
+        saved_stderr = _dup(stderr_fd);
+        DuplicateHandle(GetCurrentProcess(), stream_handle(stderr), GetCurrentProcess(), &console,
+                        0, FALSE, DUPLICATE_SAME_ACCESS);
     }
     wchar_t folder[32768];
     DWORD length = GetEnvironmentVariableW(L"CCURATE_LOG_DIR", folder, 32768);
@@ -192,19 +200,15 @@ void cc_win_diagnostics_start(int debug, int graphical)
         *log_path = 0;
     /* Workers never enter here. The pipe is non-inheritable and stdout remains
      * untouched, including binary preview packets and CLI output. */
-    if (!valid_handle((HANDLE)_get_osfhandle(2))) {
-        FILE *stream;
-        freopen_s(&stream, "NUL", "w", stderr);
-    }
     HANDLE writer = NULL;
-    if (opened && CreatePipe(&reader, &writer, NULL, 0)) {
+    if (opened && stderr_fd >= 0 && CreatePipe(&reader, &writer, NULL, 0)) {
         int fd = _open_osfhandle((intptr_t)writer, _O_WRONLY | _O_BINARY | _O_NOINHERIT);
         if (fd >= 0) {
             pump = CreateThread(NULL, 0, drain_stderr, NULL, 0, NULL);
-            if (pump && !_dup2(fd, 2)) {
+            if (pump && !_dup2(fd, stderr_fd)) {
                 capturing = 1;
-                SetHandleInformation((HANDLE)_get_osfhandle(2), HANDLE_FLAG_INHERIT, 0);
-                SetStdHandle(STD_ERROR_HANDLE, (HANDLE)_get_osfhandle(2));
+                SetHandleInformation(stream_handle(stderr), HANDLE_FLAG_INHERIT, 0);
+                SetStdHandle(STD_ERROR_HANDLE, stream_handle(stderr));
                 setvbuf(stderr, NULL, _IONBF, 0);
             }
             _close(fd);
@@ -266,12 +270,12 @@ void cc_win_diagnostics_finish(int status)
     if (capturing) {
         capturing = 0;
         if (saved_stderr >= 0)
-            _dup2(saved_stderr, 2);
+            _dup2(saved_stderr, stderr_fd);
         else {
             FILE *stream;
             freopen_s(&stream, "NUL", "w", stderr);
         }
-        SetStdHandle(STD_ERROR_HANDLE, (HANDLE)_get_osfhandle(2));
+        SetStdHandle(STD_ERROR_HANDLE, stream_handle(stderr));
     }
     if (saved_stderr >= 0)
         _close(saved_stderr);

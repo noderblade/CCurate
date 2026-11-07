@@ -35,7 +35,19 @@ try {
     if (-not (Test-Path -LiteralPath $exe -PathType Leaf)) {
         throw 'ccurate.exe is missing. Extract the complete ZIP before running this launcher.'
     }
-    Write-Host ('Executable SHA-256: ' + (Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash)
+    # Use .NET directly: an inherited PowerShell 7 PSModulePath can prevent
+    # Windows PowerShell from finding its Get-FileHash script module.
+    try {
+        $algorithm = [Security.Cryptography.SHA256]::Create()
+        try {
+            $stream = [IO.File]::OpenRead($exe)
+            try { $hash = [BitConverter]::ToString($algorithm.ComputeHash($stream)).Replace('-', '') }
+            finally { $stream.Dispose() }
+        } finally { $algorithm.Dispose() }
+        Write-Host ('Executable SHA-256: ' + $hash)
+    } catch {
+        Write-Host ('Executable checksum unavailable: ' + $_.Exception.Message)
+    }
     # A child inherits the parent's error mode. Suppress loader error dialogs so
     # a missing DLL produces an exit code instead of a hidden, blocking popup.
     Add-Type -TypeDefinition @'

@@ -135,7 +135,7 @@ its output, and waits for Enter before closing. It uses the Windows PowerShell
 already supplied by Windows; no development tools are required. Its execution
 policy option applies only to that PowerShell process.
 
-The application always creates a UTF-8 startup log under:
+Normal application startup attempts to create a UTF-8 log under:
 
 ```text
 %LOCALAPPDATA%\CCurate\Logs\startup-<UTC timestamp>-<PID>.log
