@@ -226,18 +226,13 @@ HANDLE cc_win_relative_handle(int root, const char *leaf, ACCESS_MASK access, UL
     }
     if (!ordinary_directory(parent))
         return INVALID_HANDLE_VALUE;
-    if (!strcmp(leaf, ".") && disposition == FILE_OPEN) {
-        HANDLE h = ReOpenFile(parent, access, FILE_SHARE_READ | FILE_SHARE_WRITE,
-                              FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT);
-        if (h == INVALID_HANDLE_VALUE)
-            cc_win_errno(GetLastError());
-        return h;
-    }
     if (!InitOnceExecuteOnce(&nt_once, load_nt, NULL, NULL)) {
         errno = ENOTSUP;
         return INVALID_HANDLE_VALUE;
     }
-    wchar_t *wide = cc_win_wide(leaf);
+    /* An empty native name reopens the anchored directory itself. Supplying
+     * FILE_DIRECTORY_FILE avoids ReOpenFile's file-oriented flag translation. */
+    wchar_t *wide = cc_win_wide(!strcmp(leaf, ".") ? "" : leaf);
     if (!wide)
         return INVALID_HANDLE_VALUE;
     size_t bytes = wcslen(wide) * sizeof(*wide);
@@ -261,7 +256,14 @@ HANDLE cc_win_relative_handle(int root, const char *leaf, ACCESS_MASK access, UL
         disposition, options | FILE_OPEN_REPARSE_POINT | FILE_SYNCHRONOUS_IO_NONALERT, NULL, 0);
     free(wide);
     if (result < 0) {
-        cc_win_errno(nt_error(result));
+        DWORD error = nt_error(result);
+        if (getenv("CCURATE_WINDOWS_DIAGNOSTICS"))
+            fprintf(stderr,
+                    "Windows relative open: %s, access 0x%lx, options 0x%lx: "
+                    "NTSTATUS 0x%lx, error %lu\n",
+                    leaf, (unsigned long)access, (unsigned long)options, (unsigned long)result,
+                    (unsigned long)error);
+        cc_win_errno(error);
         return INVALID_HANDLE_VALUE;
     }
     if (!GetFileInformationByHandleEx(h, FileAttributeTagInfo, &tag, sizeof(tag))) {
@@ -640,13 +642,10 @@ CCWinDir *cc_win_fdopendir(int fd)
     if (!ordinary_directory(cc_win_handle(fd)))
         return NULL;
     CCWinDir *dir = xmalloc(sizeof(*dir));
-    dir->reader = ReOpenFile(cc_win_handle(fd), FILE_LIST_DIRECTORY | FILE_READ_ATTRIBUTES,
-                             FILE_SHARE_READ | FILE_SHARE_WRITE,
-                             FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT);
+    dir->reader = cc_win_relative_handle(fd, ".", FILE_LIST_DIRECTORY | FILE_READ_ATTRIBUTES,
+                                         FILE_OPEN, FILE_DIRECTORY_FILE, 0);
     if (dir->reader == INVALID_HANDLE_VALUE) {
-        DWORD error = GetLastError();
         free(dir);
-        cc_win_errno(error);
         return NULL;
     }
     dir->fd = fd;

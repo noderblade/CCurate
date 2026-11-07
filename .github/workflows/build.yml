@@ -61,6 +61,7 @@ jobs:
             mingw-w64-ucrt-x86_64-file
             mingw-w64-ucrt-x86_64-vulkan-headers
             mingw-w64-ucrt-x86_64-vulkan-loader
+            mingw-w64-ucrt-x86_64-mesa
             mingw-w64-ucrt-x86_64-fontconfig
             mingw-w64-ucrt-x86_64-glib2
             mingw-w64-ucrt-x86_64-libjpeg-turbo
@@ -84,13 +85,11 @@ jobs:
       - name: Select software Vulkan for desktop tests
         id: vulkan
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
-        shell: pwsh
         run: |
-          $roots = @("$env:ProgramFiles\Google\Chrome\Application", "${env:ProgramFiles(x86)}\Microsoft\Edge\Application")
-          $icd = Get-ChildItem $roots -Filter vk_swiftshader_icd.json -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
-          if (-not $icd) { throw 'Software Vulkan ICD unavailable; GUI validation cannot be skipped.' }
-          "VK_ICD_FILENAMES=$($icd.FullName)" >> $env:GITHUB_ENV
-          Write-Output "Testing with $($icd.FullName)"
+          driver="$(cygpath -m "$RUNNER_TEMP/ccurate-vulkan")"
+          python scripts/windows_ci_vulkan.py "$driver"
+          echo "CCURATE_VULKAN_DRIVER=$driver" >> "$GITHUB_ENV"
+          echo "VK_ICD_FILENAMES=$driver/lvp_icd.json" >> "$GITHUB_ENV"
       - name: Native Windows GUI regression
         if: ${{ !cancelled() && steps.vulkan.outcome == 'success' }}
         run: python tests/windows_gui.py build-windows/ccurate.exe test-results/windows-gui
@@ -111,6 +110,16 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Packaged test interpreter could not start' }
           & $python tests/windows_integration.py dist/CCurate-windows-x64/ccurate.exe
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Copy-Item build-windows/previewcheck.exe dist/CCurate-windows-x64/previewcheck.exe
+          try {
+            & $python tests/windows_previews.py dist/CCurate-windows-x64/previewcheck.exe
+            if ($LASTEXITCODE -ne 0) { throw 'Packaged preview regression failed' }
+          } finally {
+            Remove-Item dist/CCurate-windows-x64/previewcheck.exe
+          }
+          # Only the isolated software graphics driver is added for GUI checks.
+          # The application's development prefix remains absent from PATH.
+          $env:PATH += ";$env:CCURATE_VULKAN_DRIVER"
           & $python tests/windows_gui.py dist/CCurate-windows-x64/ccurate.exe test-results/windows-packaged-gui
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - uses: actions/upload-artifact@v4
