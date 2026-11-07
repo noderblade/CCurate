@@ -67,12 +67,15 @@ jobs:
             mingw-w64-ucrt-x86_64-ffmpeg
       - name: Build native executable and tests
         run: |
-          cmake -S . -B build-windows -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake -S . -B build-windows -G Ninja -DCMAKE_BUILD_TYPE=Release -DPython3_EXECUTABLE="$(cygpath -m "$(command -v python)")"
           cmake --build build-windows --parallel 4 -- -k 0
+          cmake -S . -B build-windows-core -G Ninja -DCMAKE_BUILD_TYPE=Release -DCCURATE_GUI=OFF -DCCURATE_MEDIA=OFF -DPython3_EXECUTABLE="$(cygpath -m "$(command -v python)")"
+          cmake --build build-windows-core --parallel 4 -- -k 0
       - name: Native Windows regression suite
         run: |
           echo "CCURATE_TEST_PYTHON=$(cygpath -w "$(command -v python)")" >> "$GITHUB_ENV"
           ctest --test-dir build-windows --output-on-failure
+          ctest --test-dir build-windows-core --output-on-failure
       - name: Select software Vulkan for desktop tests
         shell: pwsh
         run: |
@@ -107,4 +110,5 @@ jobs:
           name: windows-test-logs
           path: |
             build-windows/Testing/Temporary/
+            build-windows-core/Testing/Temporary/
             test-results/

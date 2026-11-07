@@ -1,6 +1,7 @@
 # Validation
 
-CCurate 0.1.0, tested on 6 November 2026.
+CCurate 0.1.0 plus the Windows port, validation updated 7 November 2026.
+Linux remains the primary platform.
 
 ## Build and core behavior
 
@@ -59,9 +60,9 @@ python3 tests/sorting.py build/ccurate build/sortcheck
 
 ## Native interface
 
-All seven real-window suites pass under Xvfb with Mesa software Vulkan. The
-startup suite and both core integration configurations were run for the folder
-chooser change; the other GUI suites retain their earlier validation results.
+All seven real-window suites pass under Xvfb with Mesa software Vulkan. They
+were rerun for the Windows port, together with both core integration
+configurations, stress/live-scan/sorting and all production preview suites.
 
 | Suite | Coverage |
 | --- | --- |
@@ -73,8 +74,8 @@ chooser change; the other GUI suites retain their earlier validation results.
 | `gui_scroll_sort.py` | Clickable sort headers, keyboard sorting, per-pane persistence, global list dragging across 2,205 rows, horizontal tables and preview/details/log scrollbars |
 | `gui_startup.py` | No-argument folder selection without typing paths, keyboard and mouse browsing, hidden roots, cancellation, equal-root rejection, session resume, offline browsing and session-open errors |
 
-Install Xvfb, xdotool, Python Pillow and a working Vulkan ICD for these optional
-checks. Each script manages its own disposable X server and fixture directories.
+Install Xvfb, xdotool, Python Pillow/fontTools, DejaVu/URW fonts and a working
+Vulkan ICD for these checks. Each script manages its own disposable X server and fixture directories.
 
 ```sh
 python3 tests/gui_smoke.py build/ccurate
@@ -136,3 +137,47 @@ on the target storage hardware.
 The bundled Raven source is unchanged. Application implementation uses separately
 compiled `.c` files and self-contained `.h` interfaces; no implementation
 fragments are included.
+
+
+## Linux compatibility gate for the Windows port
+
+The baseline is commit `4babb053bb66063e97d27a05b4d6e89668b705ff`. After the
+platform selections were added, full and core Linux executables were rebuilt
+with the same compiler, configuration and dependencies as that baseline. Both
+were **byte-for-byte identical**, with these SHA-256 values:
+
+| Configuration | SHA-256 |
+| --- | --- |
+| GUI + media | `77f43402f74fbb2f825916d10fe6601f7f42f42afc16129286291eba1a9163a2` |
+| Core only | `471f64bdff5ff169047ecb4e6254e4942040f34c6df5c40815cccebf733cba85` |
+
+The local regression suites passed again with software Vulkan explicitly selected.
+GitHub Actions also passed the complete Linux suite on Ubuntu 24.04. Initial
+runner setup failures involved missing font fixtures and an older Pillow API;
+those were test-environment issues, corrected without changing application
+behavior. The comparison is specific to the recorded toolchain/build settings,
+not a promise about every compiler, driver or filesystem. Vendored Raven is
+unchanged. No Windows source file is compiled into the Linux targets.
+
+## Native Windows checks
+
+`tests/windows_integration.py` uses real disposable NTFS directories and the
+native executable. Its 16 cases cover binary bytes and SHA-512, deduplication,
+Unicode/emoji names, hidden/system attributes, long paths, case collisions,
+traversal refusal, invalid root pairs, session locking, changed source versions,
+review/reject/restore, complete directories, target moves, publication recovery,
+JSONL rebuild, metadata, named-stream refusal, junctions and audit corruption.
+Several related assertions share a test case.
+
+`tests/windows_previews.py` drives the real restricted subprocess through seven
+cases: text/binary, PNG/JPEG, a 96 MP JPEG, ZIP members, PDF, cancellation and
+refusal of an unrestricted worker. Fixture SHA-512 values must remain unchanged.
+`tests/windows_gui.py` opens real Win32/Vulkan windows, exercises the native folder
+picker and cancellation, then copies with F5, marks reviewed, opens help/history,
+saves the session and audits the result. Screenshots and diagnostics are retained.
+
+The packaging check runs the complete integration and GUI scripts against the
+staged executable with only Windows system directories on its `PATH`. This is
+stronger than link success, but still runs on the CI host rather than a fresh
+consumer Windows installation. See [the Windows guide](docs/WINDOWS_PORT.md)
+for unsupported filesystem features and preview isolation differences.

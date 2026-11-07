@@ -292,7 +292,7 @@ static DWORD file_access(int flags)
     return ((flags & O_RDWR)     ? GENERIC_READ | GENERIC_WRITE
             : (flags & O_WRONLY) ? GENERIC_WRITE
                                  : GENERIC_READ) |
-           READ_CONTROL;
+           READ_CONTROL | FILE_READ_ATTRIBUTES;
 }
 int cc_win_open(const char *path, int flags, ...)
 {
