@@ -7,11 +7,24 @@ JSONL history. It does not require an MSYS2 shell at runtime.
 
 ## Run the Windows package
 
-Download **CCurate-windows-x64** from a successful **Build and test** run in the
-repository's Actions tab. Extract the complete ZIP into a writable directory.
+**[Download the latest Windows x64 build (.zip)](https://github.com/noderblade/CCurate/releases/download/windows-latest/CCurate-windows-x64.zip).**
+
+Extract the complete ZIP into a writable directory.
 Keep `ccurate.exe`, its DLLs and the `etc`, `lib` and `share` directories together.
 Double-click `ccurate.exe`, then browse for the source and destination folders.
 The Windows folder dialog includes drives, network locations and hidden folders.
+
+The download URL stays the same across updates. A separate publishing workflow
+updates the `windows-latest` prerelease only after **Build and test** succeeds
+for `main`, including both Linux and Windows checks. Failed builds leave the
+previous download available. This does not publish Linux binaries; building from
+source remains the recommended Linux installation method.
+
+The [release page](https://github.com/noderblade/CCurate/releases/tag/windows-latest)
+identifies the source commit and test run. A
+[SHA-256 checksum](https://github.com/noderblade/CCurate/releases/download/windows-latest/SHA256SUMS)
+is provided alongside the ZIP. Downloading the public release does not require
+a GitHub account. Actions artifacts remain available for individual test runs.
 
 The GUI requires Windows 10/11 x64 and a working Vulkan graphics driver. CI uses
 Windows Server 2022 with software Vulkan; this does not certify every graphics

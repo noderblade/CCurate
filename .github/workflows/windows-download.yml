@@ -1,0 +1,124 @@
+name: Publish Windows download
+
+on:
+  workflow_run:
+    workflows: [Build and test]
+    branches: [main]
+    types: [completed]
+
+permissions:
+  contents: read
+
+# Keep an in-progress upload independent of cancellation of a newer build.
+concurrency:
+  group: windows-latest-download
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Update the public Windows download
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.head_repository.full_name == github.repository &&
+      (github.event.workflow_run.event == 'push' ||
+       github.event.workflow_run.event == 'workflow_dispatch')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      actions: read
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      BUILD_SHA: ${{ github.event.workflow_run.head_sha }}
+      BUILD_RUN_ID: ${{ github.event.workflow_run.id }}
+    steps:
+      - name: Ignore superseded builds
+        id: revision
+        shell: bash
+        run: |
+          head=$(gh api "repos/$GH_REPO/git/ref/heads/main" --jq .object.sha)
+          if [[ "$head" == "$BUILD_SHA" ]]; then
+            echo 'publish=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'A newer main revision exists; keeping the current download.'
+            echo 'publish=false' >> "$GITHUB_OUTPUT"
+          fi
+      - name: Download the tested Windows runtime
+        if: steps.revision.outputs.publish == 'true'
+        uses: actions/download-artifact@v4
+        with:
+          name: CCurate-windows-x64
+          path: windows-package
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ github.token }}
+      - name: Verify and archive the runtime
+        if: steps.revision.outputs.publish == 'true'
+        shell: python
+        run: |
+          from pathlib import Path
+          import hashlib
+          import json
+          import zipfile
+
+          root = Path('windows-package')
+          records = json.loads((root / 'FILES.json').read_text(encoding='utf-8'))
+          expected = {record['path'] for record in records}
+          assert len(expected) == len(records), 'Duplicate manifest paths'
+          files = sorted(path for path in root.rglob('*') if path.is_file())
+          actual = {path.relative_to(root).as_posix() for path in files}
+          assert actual == expected | {'FILES.json'}, 'Package/manifest mismatch'
+          assert not any(path.is_symlink() for path in root.rglob('*')), 'Unexpected symlink'
+          assert all(path.name.lower() not in ('agents.md', 'msys-2.0.dll') for path in files)
+          assert (root / 'ccurate.exe').read_bytes()[:2] == b'MZ', 'Native executable missing'
+          for record in records:
+              path = root / record['path']
+              assert hashlib.sha256(path.read_bytes()).hexdigest() == record['sha256'], path
+          output = Path('release')
+          output.mkdir()
+          archive = output / 'CCurate-windows-x64.zip'
+          with zipfile.ZipFile(archive, 'w', zipfile.ZIP_DEFLATED, compresslevel=6) as bundle:
+              for path in files:
+                  bundle.write(path, 'CCurate-windows-x64/' + path.relative_to(root).as_posix())
+          checksum = hashlib.sha256(archive.read_bytes()).hexdigest()
+          (output / 'SHA256SUMS').write_text(f'{checksum}  {archive.name}\n', encoding='utf-8')
+          print(f'Verified {len(records)} files; packaged {archive.stat().st_size} bytes.')
+      - name: Publish the stable download URL
+        if: steps.revision.outputs.publish == 'true'
+        shell: bash
+        run: |
+          # Check again after downloading/packing, before changing release assets.
+          head=$(gh api "repos/$GH_REPO/git/ref/heads/main" --jq .object.sha)
+          if [[ "$head" != "$BUILD_SHA" ]]; then
+            echo 'Main advanced while packaging; keeping the current download.'
+            exit 0
+          fi
+          cat > release-notes.md <<EOF
+          Latest automatically published Windows x64 build of CCurate.
+
+          Download **CCurate-windows-x64.zip**, extract the complete archive and
+          run **ccurate.exe**. Requires Windows 10/11 x64 and a Vulkan graphics
+          driver. MSYS2 is not required to run the package.
+
+          **Experimental Windows port. Linux remains the primary platform;
+          Linux users should build from source.**
+
+          - [Source commit](https://github.com/$GH_REPO/commit/$BUILD_SHA)
+          - [Passed Linux and Windows checks](https://github.com/$GH_REPO/actions/runs/$BUILD_RUN_ID)
+          - [Windows requirements and limitations](https://github.com/$GH_REPO/blob/$BUILD_SHA/docs/WINDOWS_PORT.md)
+
+          This prerelease is updated in place. The ZIP download URL stays the same.
+          SHA256SUMS contains the checksum of the downloadable ZIP; FILES.json
+          inside the package lists the checksums of its individual files.
+          EOF
+          tag=windows-latest
+          title='Windows - latest successful build'
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release upload "$tag" release/CCurate-windows-x64.zip release/SHA256SUMS --clobber
+            gh api --method PATCH "repos/$GH_REPO/git/refs/tags/$tag" -f sha="$BUILD_SHA" -F force=true
+            gh release edit "$tag" --title "$title" --notes-file release-notes.md --prerelease --latest=false
+          else
+            gh release create "$tag" release/CCurate-windows-x64.zip release/SHA256SUMS \
+              --target "$BUILD_SHA" --title "$title" --notes-file release-notes.md --prerelease --latest=false
+          fi
+          echo "[Download Windows x64](https://github.com/$GH_REPO/releases/download/$tag/CCurate-windows-x64.zip)" >> "$GITHUB_STEP_SUMMARY"

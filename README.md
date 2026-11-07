@@ -12,6 +12,16 @@ SHA-512 content verification, SQLite sessions and a portable JSON Lines index.
 Current version: **0.1.0**. **Linux is the primary platform**; an experimental
 native Windows x64 port is available.
 
+| Platform | Recommended installation |
+| --- | --- |
+| **Windows 10/11 x64** | **[Download the latest Windows build (.zip)](https://github.com/noderblade/CCurate/releases/download/windows-latest/CCurate-windows-x64.zip)** |
+| **Linux (primary)** | **[Build from source on your system](#build-and-run)** |
+
+For Windows, extract the complete ZIP and run `ccurate.exe`; a Vulkan graphics
+driver is required. The download link updates automatically after the Linux and
+Windows checks pass. The Windows port is experimental; see the
+[Windows guide](docs/WINDOWS_PORT.md) for requirements and limitations.
+
 ![CCurate workspace with source and destination panes, scan progress, image preview and file details](docs/images/ccurate-workspace.png)
 
 ## The problem
@@ -160,6 +170,8 @@ a separate process with resource limits; failures appear in the preview and log.
 
 ## Build and run
 
+**Building from source is the recommended installation method on Linux.**
+
 Requirements: Linux, a C11 compiler, CMake 3.20 or newer, pkg-config, OpenSSL,
 SQLite3 with JSON support, libarchive and libmagic. The graphical build also
 uses X11, Vulkan, Fontconfig, GIO 2.50+ and a working Vulkan driver. Media previews use
@@ -193,8 +205,9 @@ your desktop user, including when CCurate itself runs through `sudo`.
 For dependency package examples, display backend selection and the CLI-only
 build, see the [build instructions](USER_GUIDE.md#build).
 
-For Windows, extract the complete **CCurate-windows-x64** Actions artifact and
-launch `ccurate.exe`. MSYS2 is needed only to build, not to run the package.
+For Windows, [download the latest ZIP](https://github.com/noderblade/CCurate/releases/download/windows-latest/CCurate-windows-x64.zip),
+extract it completely and launch `ccurate.exe`. MSYS2 is needed only to build,
+not to run the package.
 The [Windows guide](docs/WINDOWS_PORT.md) covers installation, native build steps,
 separate platform files and limitations, including alternate streams, metadata
 and preview restrictions. Windows work is gated by the independent Linux suite.
