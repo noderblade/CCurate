@@ -4,7 +4,12 @@ Detailed controls, session behavior, preview limits and recovery procedures for
 CCurate 0.1.0. For the problem it solves and the main workflow, start with
 [README.md](README.md).
 
-The executable is `ccurate`. Session state is stored in `.ccurate` on the
+Linux remains the primary platform. The experimental native Windows package uses
+`ccurate.exe`; see [the Windows guide](docs/WINDOWS_PORT.md) for platform-specific
+installation, permissions, stream and preview limitations. Linux build commands
+and process restrictions below apply to Linux unless explicitly stated.
+
+The Linux executable is `ccurate`. Session state is stored in `.ccurate` on the
 destination. The interface uses [Raven](https://github.com/oscar-soirey/Raven),
 bundled with the source. All application text is English; user filenames and
 metadata keep their original spelling.
@@ -83,11 +88,15 @@ the decoder as root. The core application remains usable.
 
 Run `./build/ccurate` without arguments to open **Choose your folders**. Click
 **Browse source** to select the original directory and **Browse destination** to
-select the directory for curated files and session state. The built-in folder
+select the directory for curated files and session state. On Linux, the built-in folder
 browser shows hidden directories and does not require an external desktop
 dialog helper. Browse into a directory and confirm with **Select folder**; you
 can also select a directory row and confirm it. The selected paths are displayed
 in read-only fields, with full-path tooltips.
+
+Windows uses its native folder picker with hidden folders enabled, drive and
+network browsing, and standard Windows keyboard controls. The startup shortcuts
+`Alt+S`, `Alt+D`, `Ctrl+Enter` and `Esc` are shared.
 
 Both mouse and keyboard work throughout:
 
@@ -546,7 +555,7 @@ estimated 512 MiB coefficient budget rejects oversized inputs with a specific
 message. The existing time and total process-memory limits still apply.
 This is a thumbnail renderer, not a color-managed photographic editor.
 
-Preview decoding runs in a separate process with time and memory limits, with
+On Linux, preview decoding runs in a separate process with time and memory limits, with
 IPv4/IPv6 socket creation and `connect` blocked. Local Unix sockets/socketpairs
 and NETLINK_ROUTE remain available for Glycin/Bubblewrap sandbox setup. This is
 not complete system isolation. Defaults:

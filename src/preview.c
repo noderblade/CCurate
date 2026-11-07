@@ -3,22 +3,28 @@
 #include <archive_entry.h>
 #include <errno.h>
 #include <fcntl.h>
+#ifndef _WIN32
 #include <grp.h>
 #include <linux/filter.h>
 #include <linux/netlink.h>
 #include <linux/seccomp.h>
+#endif
 #include <magic.h>
+#ifndef _WIN32
 #include <poll.h>
 #include <signal.h>
 #include <spawn.h>
+#endif
 #include <stddef.h>
 #include <stdlib.h>
 #include <string.h>
+#ifndef _WIN32
 #include <sys/prctl.h>
 #include <sys/resource.h>
 #include <sys/socket.h>
 #include <sys/syscall.h>
 #include <sys/wait.h>
+#endif
 #include <unistd.h>
 #ifdef CCURATE_MEDIA
 #include "preview_jpeg.h"
@@ -29,9 +35,14 @@
 #include <libavutil/imgutils.h>
 #include <libswscale/swscale.h>
 #include <poppler.h>
+#ifdef _WIN32
+#include "platform/windows/preview_windows.h"
+#endif
 #endif
 
+#ifndef _WIN32
 extern char **environ;
+#endif
 void preview_free(Preview *p)
 {
     free(p->rgba);
@@ -217,9 +228,13 @@ static int image_preview(int fd, Preview *p, Buf *b)
 static int pdf_preview(int fd, int page, Preview *p, Buf *b)
 {
     GError *err = NULL;
+#ifdef _WIN32
+    PopplerDocument *doc = cc_win_pdf_document(fd, &err);
+#else
     int copy = dup(fd);
     lseek(copy, 0, SEEK_SET);
     PopplerDocument *doc = poppler_document_new_from_fd(copy, NULL, &err);
+#endif
     if (!doc) {
         p->error = 1;
         badd(b, "PDF: %s\n", err ? err->message : "cannot decode");
@@ -463,6 +478,7 @@ int preview_read(int fd, int page, int hex_only, Preview *p)
     return 0;
 }
 
+#ifndef _WIN32
 typedef struct {
     uint32_t magic, w, h, pages, text_bytes, pixel_bytes, error;
 } Packet;
@@ -741,3 +757,4 @@ spawn_failure:
     p->text = xstrdup(reason);
     return -1;
 }
+#endif

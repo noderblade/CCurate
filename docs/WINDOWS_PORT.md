@@ -1,106 +1,154 @@
-# Native Windows port assessment
+# Windows build and platform boundary
 
-CCurate currently targets Linux. A native Windows executable is feasible, but
-the application does not currently compile or run on Windows. This is a source
-review and implementation proposal, not a tested Windows build.
+Linux is CCurate's primary platform. The native Windows x64 port is experimental;
+read the filesystem and preview differences below before using it for an archive.
+It uses the same curation workflow, SHA-512 verification, SQLite sessions and
+JSONL history. It does not require an MSYS2 shell at runtime.
 
-The UI library is not the main obstacle: bundled Raven already selects Win32
-platform sources and Windows threads in its CMake build. Most application UI,
-SQLite/JSONL logic, SHA-512 verification and format decoders can be reused. The
-substantial work is replacing Linux filesystem and subprocess behavior while
-preserving the application's data-handling guarantees.
+## Run the Windows package
 
-## Work by subsystem
+Download **CCurate-windows-x64** from a successful **Build and test** run in the
+repository's Actions tab. Extract the complete ZIP into a writable directory.
+Keep `ccurate.exe`, its DLLs and the `etc`, `lib` and `share` directories together.
+Double-click `ccurate.exe`, then browse for the source and destination folders.
+The Windows folder dialog includes drives, network locations and hidden folders.
 
-| Area | Current dependency | Required Windows work |
-| --- | --- | --- |
-| Safe traversal and copying | `util.c`, `catalog.c`, `operations.c`: descriptor-relative `openat`/`fstatat`, `O_NOFOLLOW`, `renameat2(RENAME_NOREPLACE)`, directory syncing | Handle-based traversal and file identity, junction/reparse-point policy, exclusive temporary creation, no-overwrite publication and recovery tests |
-| Inventory and metadata | Linux `statx`, inode/device IDs, UID/GID/mode, xattrs/ACLs, virtual-filesystem detection | Windows timestamps and file IDs; explicit handling of attributes, security descriptors and alternate streams; preserve existing POSIX history without inventing equivalent values |
-| Paths | POSIX separators and arbitrary filename bytes | UTF-16/UTF-8 conversion, drive/UNC roots, long paths, case collisions and Windows-reserved names; keep historical names independent of valid destination names |
-| Sessions and storage metrics | `flock`, `statvfs`, Unix directory enumeration | Native locking, free-space queries and enumeration; retain SQLite transactions and recovery behavior |
-| Preview processes | `posix_spawn`, `/proc/self/exe`, inherited descriptors, `poll`, signals, `setrlimit`, `prctl`/seccomp and UID/GID drop | Windows process/pipe/handle management, cancellation and resource limits; restricted execution appropriate to untrusted decoders |
-| Desktop integration | POSIX launcher process, GIO default associations, Linux user discovery | Windows default-application launching and elevation handling; validate installed-font discovery and font-file loading |
-| Build and packaging | GNU/POSIX assumptions, Unix libraries and dependency discovery | Conditional platform sources and compiler flags, native dependency builds, runtime DLL/resource collection and clean-machine launch tests |
-| Tests | POSIX fixtures, signals, permissions, Xvfb/xdotool | Shared content/session tests plus native Windows filesystem, worker and UI fixtures; retain the Linux suite |
+The GUI requires Windows 10/11 x64 and a working Vulkan graphics driver. CI uses
+Windows Server 2022 with software Vulkan; this does not certify every graphics
+card, network share or removable drive. The package is unsigned and is not an
+installer. The application does not install drivers, partition disks or import
+ZFS pools. The operating system must already expose the source and destination.
 
-Windows worker limits and restricted execution need separate design: process
-resource limits alone do not prevent filesystem or network access. Removing the
-Linux checks or replacing them with success-returning stubs would not constitute
-a usable port. Similarly, a rename fallback must preserve refusal to overwrite
-existing content and the ability to recover an interrupted operation.
+PowerShell examples:
 
-Alternate data streams need an explicit retention policy. They must not silently
-disappear when a Windows file is reported as fully secured. Source-drive format,
-available metadata and destination naming limits should remain visible in the
-catalog and user-facing diagnostics.
+```powershell
+.\ccurate.exe 'E:\Old archive' 'F:\Curated'
+.\ccurate.exe --browse 'F:\Curated'
+$result = Start-Process .\ccurate.exe -ArgumentList '--cli "E:\Old archive" "F:\Curated" scan' -Wait -PassThru -NoNewWindow
+$result.ExitCode
+```
 
-## Recommended approach and effort
+The executable uses the Windows GUI subsystem. For scripted CLI commands,
+`Start-Process -Wait -PassThru` waits for completion and exposes the exit code;
+replace `scan` with `audit` to verify the destination.
 
-Start with a native x64 build using **MSYS2 UCRT64, GCC and CMake/Ninja**. UCRT64
-provides a native Windows toolchain while keeping the build close to the current
-GCC setup. The intended deliverable is a Windows executable with its required
-DLLs and resources, not an application dependent on a running MSYS/Cygwin shell.
-MSVC is a possible later target, but adds compiler/runtime compatibility work.
-The [MSYS2 environment documentation](https://www.msys2.org/docs/environments/)
-describes the toolchain distinction.
+Prefer ordinary desktop execution. Administrator execution can read additional
+files permitted by Windows, but does not bypass sharing violations or encryption.
+External default-application launching is disabled in an elevated CCurate process
+so it cannot launch an editor with administrator privileges. Restricted previews
+remain separate; failure to establish their restrictions blocks decoding.
 
-Introduce a small application platform interface with separate Linux and Windows
-`.c` implementations. Move filesystem/metadata and worker/desktop operations
-behind it, rather than spreading conditional compilation through the GUI or
-changing vendored Raven. Keep the existing source-read-only behavior, independent
-destination verification, deduplication and index format semantics.
+## Filesystem behavior and limits
 
-Suggested sequence:
-
-1. Build the core and port safe traversal, file identity, locking, copying and
-   atomic publication. Run scan/copy/audit/resume/recovery tests on Windows.
-2. Enable Raven and adapt path handling, font discovery, startup selection and
-   default-application launching. Test Windows and Linux archive metadata.
-3. Port preview workers and their limits, package codecs/resources, and test
-   cancellation, corrupt inputs, large images and elevated application startup.
-4. Validate long/UNC paths, junctions, case collisions, interrupted copies and
-   the declared metadata/stream coverage on the target filesystems.
-
-This is a moderate-to-large portability change across several service modules,
-not a GUI rewrite or one compiler switch. A rough planning allowance is **2-4
-developer-weeks for a usable first native version**, assuming the dependencies
-work under UCRT64. Full metadata coverage, isolation hardening and validation on
-real archive hardware may take longer. A compile-only experiment could be much
-shorter but would not establish safe curation behavior. These estimates come
-from static inspection; no Windows compiler or runtime was exercised here.
-
-The port also does not make a ZFS drive accessible to Windows by itself. CCurate
-needs paths exposed by the operating system or a mounted network filesystem;
-it does not supply filesystem drivers or import pools.
-
-## GitHub Actions automation
-
-GitHub provides Windows-hosted runners, so a separate Windows build machine is
-not required for continuous integration. Once the platform code works, the
-proposed pipeline is:
-
-| Stage | Proposed action |
+| Area | Native Windows behavior |
 | --- | --- |
-| Trigger | Push, pull request and manual `workflow_dispatch` |
-| Environment | Windows x64 runner, initially a specific supported image such as `windows-2022`; set up MSYS2 UCRT64 |
-| Dependencies | Install UCRT64 compiler, CMake/Ninja, pkg-config and the native builds of the existing libraries; record versions in the build log |
-| Build | Configure separate core and GUI/media builds; compile with warnings enabled |
-| Validate | Run Windows-compatible integration and platform tests; retain independent Linux jobs |
-| Package | Stage `ccurate.exe`, required DLLs, decoder resources, documentation and third-party notices in a ZIP |
-| Deliver | Upload the ZIP and test logs as workflow artifacts; optionally add tagged-release publication later |
+| Source | Opened for reading and metadata queries; curation has no source-delete operation |
+| Names | UTF-8 catalog, UTF-16 Windows calls, long-path-aware executable and extended paths |
+| Enumeration | Hidden and system attributes never filter the source listing |
+| File identity | Volume serial number and 64-bit file ID, size and high-resolution timestamps |
+| Traversal | Handle-relative opens, with reparse points inspected rather than followed |
+| Publication | Exclusive temporary file, SHA-512 verification, no-overwrite rename and recovery journal |
+| Case conflicts | Existing names are not overwritten, including case-insensitive collisions |
+| Session | Native exclusive byte-range lock, SQLite transactions and portable JSONL export |
+| Metadata | Creation/modification/change times; original Windows attributes and owner/group/DACL SDDL stored in the index |
+| Permissions | Display mode bits are synthetic; UID/GID are -1. Destination files inherit destination ACLs; the original SDDL is historical data, not reapplied security policy |
+| Reparse points | Symlink/junction targets or raw reparse metadata retained; targets are not traversed or recreated |
+| Alternate data streams | Named streams are detected and copying is blocked with a visible error; this version does not retain their content |
+| Durability | File data and SQLite are flushed. Windows has no equivalent unprivileged directory `fsync` in this adapter; namespace power-loss durability is weaker than the Linux path |
 
-The build must check runtime dependency completeness, not merely whether the
-linker produced an executable. Test the packaged application outside the MSYS2
-development environment. Interactive Vulkan GUI checks may need a separate
-Windows desktop test environment even when compilation and core tests run on
-GitHub's hosted runner. A user still needs a suitable Vulkan driver at runtime.
+A file with a named alternate stream (including `Zone.Identifier`) is deliberately
+left unresolved. It must not receive a secured status after losing that stream.
+The application does not remove the stream or change the original file. This is
+a material limitation of the first Windows port, not an instruction to discard
+stream metadata. Use the Activity log and balance report to identify these files.
 
-The current change does **not** install a Windows workflow: it would fail on the
-Linux-specific source. Add the workflow alongside the first functioning platform
-implementation, then expand its tests and packaging as features become available.
+Catalog paths remain independent of destination naming rules. Historical Linux
+names can be retained in JSONL; Windows cannot materialize every POSIX filename.
+Invalid destination components, traversal attempts and reserved device names are
+refused. Case-sensitive NTFS directories are refused explicitly rather than
+resolving two distinct names to the same file. UNC/SMB semantics, ReFS, FAT/exFAT, EFS,
+cloud placeholders and actual power-loss recovery need additional validation.
+Do not infer support for those scenarios from NTFS CI fixtures.
 
-Official references:
+## Preview implementation
 
-- [GitHub-hosted runners](https://docs.github.com/en/actions/reference/runners/github-hosted-runners)
-- [Build and test artifacts](https://docs.github.com/en/actions/tutorials/store-and-share-data)
-- [MSYS2 in CI](https://www.msys2.org/docs/ci/)
+Windows workers use a restricted low-integrity token and a Job Object with one
+process, 1 GiB committed-memory limit, 12 CPU seconds and kill-on-close. The
+parent enforces a 20-second deadline, bounded output and cancellation. Only the
+input file and stdout/stderr pipes are inherited. The worker verifies its limits
+before decoding; it never silently falls back to an unrestricted process.
+
+The same JPEG, GdkPixbuf, Poppler, FFmpeg and libarchive decoders are used. PDFs
+are read through a bounded stream (256 MiB input maximum). Large JPEGs use the
+existing reduced-resolution scanline decoder. Preview output is at most 1000 by
+800 pixels; archives are listed without extraction.
+
+Low integrity plus a Job Object is **not an AppContainer** and does not reproduce
+Linux's socket filter or per-scratch-file limit. It is resource and privilege
+restriction, not complete filesystem/network isolation. Workers use the inherited
+read-only input handle, including bounded mappings for positional reads, without
+reopening the source path under a different identity. Decoder refusal is visible
+in the preview and log; copying is independent of preview availability.
+
+## Build from source
+
+Use the **MSYS2 UCRT64** terminal with native UCRT64 packages. MSVC and 32-bit
+builds are not supported by this first port. The exact dependency list lives in
+[the workflow](../.github/workflows/build.yml), including GCC, CMake, Ninja,
+pkgconf, Python/Pillow, OpenSSL, SQLite, libarchive, file/libmagic, Vulkan,
+Fontconfig, GLib, libjpeg-turbo, GdkPixbuf, Poppler and FFmpeg.
+
+```sh
+cmake -S . -B build-windows -G Ninja -DCMAKE_BUILD_TYPE=Release
+cmake --build build-windows --parallel 4
+ctest --test-dir build-windows --output-on-failure
+python scripts/package_windows.py build-windows/ccurate.exe dist/CCurate-windows-x64
+```
+
+The packager walks PE import tables recursively, includes dynamically loaded
+image loaders and their resources, rejects an MSYS runtime dependency, and emits
+a SHA-256 `FILES.json` manifest and third-party license files. A complete package
+must also pass integration and GUI checks with MSYS2 removed from `PATH`.
+CI stages and registers Mesa's software Vulkan driver on its disposable runner;
+it is not bundled with the application or used to satisfy application DLL
+dependencies.
+
+## Source separation
+
+All Windows implementation files are under `src/platform/windows/`; their
+interfaces are under `include/platform/windows/`. They are compiled only by
+`cmake/Windows.cmake`. The original Linux CMake graph and Linux service
+implementations remain in place. Vendored Raven is unchanged.
+
+| Windows file | Responsibility |
+| --- | --- |
+| `fs_windows.c` / `fs_windows.h` | Descriptor adapter, paths, handle-relative I/O, enumeration, locking, durability and space queries |
+| `metadata_windows.c` | Attributes, SDDL, stream detection and reparse metadata |
+| `process_windows.c` / `process_windows.h` | Restricted process creation, pipes, handle inheritance and Job Objects |
+| `preview_windows.c` / `preview_windows.h` | Preview protocol, cancellation and worker restrictions |
+| `preview_media_windows.c` | Bounded Poppler stream input |
+| `desktop_windows.c` | Default-application opening and elevation checks |
+| `fonts_windows.c` / `fonts_windows.h` | System and per-user font discovery |
+| `dialog_windows.c` / `dialog_windows.h` | Native folder browsing, including hidden folders |
+| `main_windows.c` / `native_windows.h` | UTF-16 entry point, runtime paths and Win32 helper declarations |
+| `ccurate.rc` / `ccurate.manifest` | Long paths, DPI behavior and as-invoker execution |
+
+Small `_WIN32` selections connect shared services to those implementations.
+Windows adapters are never included by Raven or a Linux build. Shared curation,
+SQL, hashing, sorting and GUI behavior stays common.
+
+## Automated validation
+
+Every push and pull request runs two independent jobs:
+
+- **Linux primary regression suite:** full and core builds, integration tests,
+  million-entry paging, live scans, sorting, media processes and seven native GUI
+  suites under Xvfb/software Vulkan.
+- **Windows x64 UCRT64:** native compilation, disposable NTFS integration fixtures,
+  real restricted preview workers, Win32/Vulkan GUI checks, packaging and tests
+  without the development toolchain on the application's `PATH`.
+
+A green compile alone is insufficient. Both jobs must pass before integrating
+platform work into the primary branch. See [TESTING.md](../TESTING.md) for the
+recorded results and remaining validation limits. CI artifacts contain logs and
+Windows GUI screenshots.

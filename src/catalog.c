@@ -2,13 +2,17 @@
 #include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
+#ifndef _WIN32
 #include <linux/magic.h>
+#endif
 #include <stdlib.h>
 #include <string.h>
+#ifndef _WIN32
 #include <sys/file.h>
 #include <sys/statvfs.h>
 #include <sys/vfs.h>
 #include <sys/xattr.h>
+#endif
 #include <unistd.h>
 
 static const char *schema =
@@ -76,6 +80,10 @@ int catalog_open(Catalog *c, const char *source, const char *destination, int br
     memset(c, 0, sizeof(*c));
     c->sfd = c->dfd = c->mfd = c->lockfd = -1;
     pthread_mutex_init(&c->progress_mutex, NULL);
+#ifdef _WIN32
+    if (!cc_win_validate_roots(source, destination, c->error, sizeof(c->error)))
+        return -1;
+#endif
     c->destination = realpath(destination, NULL);
     if (!c->destination)
         return fail(c, "Destination: %s", strerror(errno));
@@ -173,6 +181,9 @@ void catalog_close(Catalog *c)
 
 static char *attributes(int fd, char error[256])
 {
+#ifdef _WIN32
+    return cc_win_attributes(fd, error);
+#else
     Buf b = {0};
     badd(&b, "[");
     ssize_t n = flistxattr(fd, NULL, 0);
@@ -214,6 +225,7 @@ static char *attributes(int fd, char error[256])
     free(names);
     badd(&b, "]");
     return b.s;
+#endif
 }
 static const char *kind_of(mode_t m)
 {
@@ -228,11 +240,16 @@ static const char *kind_of(mode_t m)
 }
 static int kernel_fs(int fd)
 {
+#ifdef _WIN32
+    (void)fd;
+    return 0;
+#else
     struct statfs fs;
     return !fstatfs(fd, &fs) &&
            (fs.f_type == PROC_SUPER_MAGIC || fs.f_type == SYSFS_MAGIC ||
             fs.f_type == DEBUGFS_MAGIC || fs.f_type == TRACEFS_MAGIC ||
             fs.f_type == CGROUP_SUPER_MAGIC || fs.f_type == CGROUP2_SUPER_MAGIC);
+#endif
 }
 static int scan_level(const char *error)
 {
@@ -346,7 +363,12 @@ int scan_one(Catalog *c, const char *path, int full, int64_t generation)
             else {
                 free(attrs);
                 attrs = attributes(fd, meta_error);
-                if (S_ISREG(st.st_mode) && hash_fd(c, fd, hash, NULL))
+#ifdef _WIN32
+                if (!cc_win_content_supported(fd, err, sizeof(err))) {
+                    /* Named-stream bytes must never be silently marked secured. */
+                } else
+#endif
+                    if (S_ISREG(st.st_mode) && hash_fd(c, fd, hash, NULL))
                     snprintf(err, sizeof(err), "%s", c->error);
             }
             close(fd);

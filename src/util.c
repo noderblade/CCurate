@@ -168,9 +168,13 @@ int valid_relative(const char *s, int empty)
 }
 int descendant(const char *p, const char *root)
 {
+#ifdef _WIN32
+    return cc_win_descendant(p, root);
+#else
     size_t n = strlen(root);
     return !n || (!memcmp(p, root, strlen(p) < n ? strlen(p) : n) && strlen(p) >= n &&
                   (p[n] == 0 || p[n] == '/'));
+#endif
 }
 int parent_beneath(int root, const char *path, int create, char **leaf)
 {

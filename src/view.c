@@ -5,7 +5,9 @@
 #include <fcntl.h>
 #include <stdlib.h>
 #include <string.h>
+#ifndef _WIN32
 #include <sys/statvfs.h>
+#endif
 #include <time.h>
 #include <unistd.h>
 

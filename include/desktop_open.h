@@ -6,6 +6,9 @@
 
 /* A short-lived launcher, never the external application's process. */
 typedef struct {
+#ifdef _WIN32
+    void *native;
+#endif
     pid_t pid;
     int fd;
     size_t used;

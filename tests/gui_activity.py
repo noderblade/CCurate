@@ -55,7 +55,9 @@ with tempfile.TemporaryDirectory(prefix='ccurate-new-ui-') as t:
    click(1080,230)
    until(lambda: 'Preview 500 x 800' in log.read_text())
    im=snap('01-oriented-jpeg')
-   green=sum(1 for r,g,b in im.crop((20,710,940,1140)).get_flattened_data() if g>140 and r<60 and b<130)
+   crop=im.crop((20,710,940,1140))
+   pixels=getattr(crop,'get_flattened_data',crop.getdata)()
+   green=sum(1 for r,g,b in pixels if g>140 and r<60 and b<130)
    assert green>20000,green
    xd('mousemove',1080,255); time.sleep(1.3); xd('key','F5')
    until(lambda: (dst/'a-photo.jpg').exists())

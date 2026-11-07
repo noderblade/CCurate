@@ -4,6 +4,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#ifdef _WIN32
+#include "platform/windows/dialog_windows.h"
+#endif
 
 /* The chooser runs before a catalog is opened. Cancelling it has no archive
  * side effects. Raven supplies its folder browser, without desktop helpers. */
@@ -37,7 +40,11 @@ static void browse(Rid button, void *data)
     int side = button == s->buttons[1];
     char *initial = *s->roots[side] ? xstrdup(*s->roots[side]) : NULL;
     if (!initial && side && *s->roots[0]) {
+#ifdef _WIN32
+        initial = cc_win_parent_path(*s->roots[0]);
+#else
         initial = parent_path(*s->roots[0]);
+#endif
         if (!*initial) {
             free(initial);
             initial = xstrdup("/");
@@ -50,7 +57,11 @@ static void browse(Rid button, void *data)
                                 side ? "Choose the destination folder" : "Choose the source folder",
                             .directory = initial,
                             .flags = R_FILE_DIALOG_RAVEN | R_FILE_DIALOG_SHOW_HIDDEN};
+#ifdef _WIN32
+    char *path = cc_win_choose_folder(s->window, desc.title, initial);
+#else
     const char *path = Rfile_dialog_select_folder(&desc);
+#endif
     if (path) {
         char *copy = xstrdup(path);
         free(*s->roots[side]);
@@ -58,6 +69,9 @@ static void browse(Rid button, void *data)
         show_error(s, "");
         refresh(s);
     }
+#ifdef _WIN32
+    free(path);
+#endif
     free(initial);
     if (Ris_running())
         Rwidget_focus(s->buttons[side]);

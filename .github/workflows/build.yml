@@ -1,0 +1,141 @@
+name: Build and test
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  linux:
+    name: Linux primary regression suite
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: |
+          sudo apt-get -o Acquire::Retries=2 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 update
+          sudo apt-get install -y ninja-build pkg-config libssl-dev libsqlite3-dev libarchive-dev libmagic-dev libx11-dev libvulkan-dev libfontconfig1-dev libglib2.0-dev libjpeg-dev libgdk-pixbuf-2.0-dev libpoppler-glib-dev libavformat-dev libavcodec-dev libavutil-dev libswscale-dev mesa-vulkan-drivers xvfb xdotool python3-pil python3-fonttools fonts-urw-base35
+      - name: Build full and core configurations
+        run: |
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake --build build --target ccurate previewcheck jpegfixture preview_policy_probe workercheck sortcheck activitycheck
+          cmake -S . -B build-core -G Ninja -DCCURATE_GUI=OFF -DCCURATE_MEDIA=OFF -DCMAKE_BUILD_TYPE=Release
+          cmake --build build-core
+      - name: Core, preview and native GUI regressions
+        run: python3 tests/run_linux.py build build-core
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: linux-test-logs
+          path: test-results/
+
+  windows:
+    name: Windows x64 UCRT64
+    runs-on: windows-2022
+    timeout-minutes: 45
+    env:
+      CCURATE_WINDOWS_DIAGNOSTICS: '1'
+      VK_LOADER_DEBUG: error,warn,driver
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          install: >-
+            mingw-w64-ucrt-x86_64-gcc
+            mingw-w64-ucrt-x86_64-cmake
+            mingw-w64-ucrt-x86_64-ninja
+            mingw-w64-ucrt-x86_64-pkgconf
+            mingw-w64-ucrt-x86_64-python
+            mingw-w64-ucrt-x86_64-python-pillow
+            mingw-w64-ucrt-x86_64-openssl
+            mingw-w64-ucrt-x86_64-sqlite3
+            mingw-w64-ucrt-x86_64-libarchive
+            mingw-w64-ucrt-x86_64-file
+            mingw-w64-ucrt-x86_64-vulkan-headers
+            mingw-w64-ucrt-x86_64-vulkan-loader
+            mingw-w64-ucrt-x86_64-mesa
+            mingw-w64-ucrt-x86_64-fontconfig
+            mingw-w64-ucrt-x86_64-glib2
+            mingw-w64-ucrt-x86_64-libjpeg-turbo
+            mingw-w64-ucrt-x86_64-gdk-pixbuf2
+            mingw-w64-ucrt-x86_64-poppler
+            mingw-w64-ucrt-x86_64-ffmpeg
+      - name: Build native executable and tests
+        id: build
+        run: |
+          cmake -S . -B build-windows -G Ninja -DCMAKE_BUILD_TYPE=Release -DPython3_EXECUTABLE="$(cygpath -m "$(command -v python)")"
+          cmake --build build-windows --parallel 4 -- -k 0
+          cmake -S . -B build-windows-core -G Ninja -DCMAKE_BUILD_TYPE=Release -DCCURATE_GUI=OFF -DCCURATE_MEDIA=OFF -DPython3_EXECUTABLE="$(cygpath -m "$(command -v python)")"
+          cmake --build build-windows-core --parallel 4 -- -k 0
+      - name: Native Windows regression suite
+        run: |
+          echo "CCURATE_TEST_PYTHON=$(cygpath -w "$(command -v python)")" >> "$GITHUB_ENV"
+          ctest --test-dir build-windows --output-on-failure
+      - name: Native Windows core regression suite
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: ctest --test-dir build-windows-core --output-on-failure
+      - name: Select software Vulkan for desktop tests
+        id: vulkan
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: |
+          driver="$(cygpath -m "$RUNNER_TEMP/ccurate-vulkan")"
+          python scripts/windows_ci_vulkan.py "$driver"
+          echo "CCURATE_VULKAN_DRIVER=$driver" >> "$GITHUB_ENV"
+          echo "VK_ICD_FILENAMES=$driver/lvp_icd.json" >> "$GITHUB_ENV"
+      - name: Native Windows GUI regression
+        if: ${{ !cancelled() && steps.vulkan.outcome == 'success' }}
+        run: python tests/windows_gui.py build-windows/ccurate.exe test-results/windows-gui
+      - name: Package native runtime
+        id: package
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: python scripts/package_windows.py build-windows/ccurate.exe dist/CCurate-windows-x64
+      - name: Test packaged runtime without MSYS2 on PATH
+        if: ${{ !cancelled() && steps.package.outcome == 'success' }}
+        shell: pwsh
+        run: |
+          $python = $env:CCURATE_TEST_PYTHON
+          if (-not (Test-Path $python)) { throw 'Native test interpreter missing' }
+          $env:PATH = "$env:SystemRoot\system32;$env:SystemRoot"
+          $app = Start-Process .\dist\CCurate-windows-x64\ccurate.exe -ArgumentList '--version' -Wait -PassThru -NoNewWindow
+          if ($app.ExitCode -ne 0) { throw "Packaged executable failed: $($app.ExitCode)" }
+          & $python --version
+          if ($LASTEXITCODE -ne 0) { throw 'Packaged test interpreter could not start' }
+          & $python tests/windows_integration.py dist/CCurate-windows-x64/ccurate.exe
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Copy-Item build-windows/previewcheck.exe dist/CCurate-windows-x64/previewcheck.exe
+          try {
+            & $python tests/windows_previews.py dist/CCurate-windows-x64/previewcheck.exe
+            if ($LASTEXITCODE -ne 0) { throw 'Packaged preview regression failed' }
+          } finally {
+            Remove-Item dist/CCurate-windows-x64/previewcheck.exe
+          }
+          # Only the isolated software graphics driver is added for GUI checks.
+          # The application's development prefix remains absent from PATH.
+          $env:PATH += ";$env:CCURATE_VULKAN_DRIVER"
+          & $python tests/windows_gui.py dist/CCurate-windows-x64/ccurate.exe test-results/windows-packaged-gui
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CCurate-windows-x64
+          path: dist/CCurate-windows-x64/
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: windows-test-logs
+          path: |
+            build-windows/Testing/Temporary/
+            build-windows-core/Testing/Temporary/
+            test-results/
