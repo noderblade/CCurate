@@ -385,10 +385,20 @@ static int handle_stat(HANDLE h, struct cc_win_stat *st)
     BY_HANDLE_FILE_INFORMATION id;
     FILE_BASIC_INFO info;
     FILE_STANDARD_INFO sizes;
-    if (!GetFileInformationByHandle(h, &id) ||
-        !GetFileInformationByHandleEx(h, FileBasicInfo, &info, sizeof(info)) ||
-        !GetFileInformationByHandleEx(h, FileStandardInfo, &sizes, sizeof(sizes)))
-        return cc_win_errno(GetLastError());
+    const char *operation = NULL;
+    if (!GetFileInformationByHandle(h, &id))
+        operation = "GetFileInformationByHandle";
+    else if (!GetFileInformationByHandleEx(h, FileBasicInfo, &info, sizeof(info)))
+        operation = "FileBasicInfo";
+    else if (!GetFileInformationByHandleEx(h, FileStandardInfo, &sizes, sizeof(sizes)))
+        operation = "FileStandardInfo";
+    if (operation) {
+        DWORD error = GetLastError();
+        if (getenv("CCURATE_WINDOWS_DIAGNOSTICS"))
+            fprintf(stderr, "Windows metadata: %s failed: error %lu, handle %p\n", operation,
+                    (unsigned long)error, (void *)h);
+        return cc_win_errno(error);
+    }
     memset(st, 0, sizeof(*st));
     st->st_dev = id.dwVolumeSerialNumber;
     st->st_ino = ((uint64_t)id.nFileIndexHigh << 32) | id.nFileIndexLow;

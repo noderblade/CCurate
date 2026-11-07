@@ -37,6 +37,8 @@ jobs:
     name: Windows x64 UCRT64
     runs-on: windows-2022
     timeout-minutes: 45
+    env:
+      CCURATE_WINDOWS_DIAGNOSTICS: '1'
     defaults:
       run:
         shell: msys2 {0}
@@ -103,8 +105,10 @@ jobs:
           $python = $env:CCURATE_TEST_PYTHON
           if (-not (Test-Path $python)) { throw 'Native test interpreter missing' }
           $env:PATH = "$env:SystemRoot\system32;$env:SystemRoot"
-          & .\dist\CCurate-windows-x64\ccurate.exe --version
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $app = Start-Process .\dist\CCurate-windows-x64\ccurate.exe -ArgumentList '--version' -Wait -PassThru -NoNewWindow
+          if ($app.ExitCode -ne 0) { throw "Packaged executable failed: $($app.ExitCode)" }
+          & $python --version
+          if ($LASTEXITCODE -ne 0) { throw 'Packaged test interpreter could not start' }
           & $python tests/windows_integration.py dist/CCurate-windows-x64/ccurate.exe
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           & $python tests/windows_gui.py dist/CCurate-windows-x64/ccurate.exe test-results/windows-packaged-gui

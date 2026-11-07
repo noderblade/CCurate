@@ -2,6 +2,13 @@
 #include "curator.h"
 #include "platform/windows/native_windows.h"
 #include <shellapi.h>
+#ifdef CCURATE_GUI
+#include <Raven.h>
+static void startup_error(RError code, RSeverity severity, const char *detail)
+{
+    fprintf(stderr, "Raven %d/%d: %s\n", code, severity, detail ? detail : "");
+}
+#endif
 
 static void runtime_variable(const wchar_t *name, const wchar_t *tail)
 {
@@ -18,6 +25,9 @@ static void runtime_variable(const wchar_t *name, const wchar_t *tail)
 }
 void cc_win_runtime_init(void)
 {
+#ifdef CCURATE_GUI
+    Rerror_set_callback(startup_error);
+#endif
     SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX | SEM_NOOPENFILEERRORBOX);
     SetConsoleOutputCP(CP_UTF8);
     _set_fmode(_O_BINARY);
