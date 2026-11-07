@@ -78,8 +78,7 @@ int prepare_hash_groups(Catalog *c)
            "v.hash;");
     if (!rc)
         rc = set_setting(c, "hash_groups_ready", "2");
-    sql_exec(c, rc ? "ROLLBACK" : "COMMIT");
-    return rc;
+    return sql_end(c, rc);
 }
 
 int catalog_open(Catalog *c, const char *source, const char *destination, int browse)
@@ -103,9 +102,21 @@ int catalog_open(Catalog *c, const char *source, const char *destination, int br
     if (c->mfd < 0)
         return fail(c, "Unsafe state directory");
     c->lockfd = openat(c->mfd, "session.lock", O_RDWR | O_CREAT | O_NOFOLLOW | O_CLOEXEC, 0600);
-    if (c->lockfd < 0 || flock(c->lockfd, LOCK_EX | LOCK_NB))
-        return fail(c, "This destination already has an active session");
+    if (c->lockfd < 0)
+        return fail(c, "Cannot open session.lock: %s", strerror(errno));
+    if (flock(c->lockfd, LOCK_EX | LOCK_NB)) {
+        if (errno == EWOULDBLOCK || errno == EAGAIN || errno == EBUSY)
+            return fail(c, "This destination already has an active session. Close the other "
+                           "CCurate process and retry; do not delete session.lock.");
+        return fail(c, "Cannot lock the session: %s", strerror(errno));
+    }
     c->state_dir = join_path(c->destination, META_DIR);
+    /* Startup/recovery failures must be logged even before the database is usable. */
+    c->log = activity_open(c->mfd);
+    if (!c->log)
+        return fail(c, "Cannot open activity.log: %s", strerror(errno));
+    activity_log(c, LOG_INFO, "session.open", source, c->destination,
+                 "Opening CCurate session; SQLite will recover any committed WAL data");
     char *dbpath = join_path(c->state_dir, "catalog.sqlite");
     /* Reject symlinked databases before SQLite opens its named sidecars. */
     struct stat ds;
@@ -119,11 +130,16 @@ int catalog_open(Catalog *c, const char *source, const char *destination, int br
         dbpath, &c->db, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_FULLMUTEX, NULL);
     free(dbpath);
     if (rc != SQLITE_OK)
-        return fail(c, "Database open failed");
+        return sql_error(c, rc, "open catalog");
     sqlite3_busy_timeout(c->db, 10000);
     sqlite3_stmt *v = sql_prepare(c, "PRAGMA user_version");
-    int version = sqlite3_step(v) == SQLITE_ROW ? sqlite3_column_int(v, 0) : 0;
+    if (!v)
+        return -1;
+    rc = sqlite3_step(v);
+    int version = rc == SQLITE_ROW ? sqlite3_column_int(v, 0) : 0;
     sqlite3_finalize(v);
+    if (rc != SQLITE_ROW)
+        return sql_error(c, rc, "read catalog schema / recover WAL");
     if (version > SCHEMA_VERSION)
         return fail(c, "Database is from a newer application; refusing to modify it");
     if (sql_exec(c, schema))
@@ -165,14 +181,17 @@ int catalog_open(Catalog *c, const char *source, const char *destination, int br
         c->sfd = open(c->source, O_RDONLY | O_DIRECTORY | O_CLOEXEC);
     if (c->sfd < 0 && !browse)
         return fail(c, "Source unavailable; use browse mode for the historical view");
-    if (*c->source)
-        set_setting(c, "source", c->source);
-    set_setting(c, "destination_hint", c->destination);
+    if ((*c->source && set_setting(c, "source", c->source)) ||
+        set_setting(c, "destination_hint", c->destination))
+        return -1;
     c->readonly = browse;
-    c->log = activity_open(c->mfd);
-    if (!c->log)
-        return fail(c, "Cannot open activity.log: %s", strerror(errno));
-    activity_log(c, LOG_INFO, "session.open", c->source, c->destination, "CCurate session opened");
+    char *started = setting(c, "scan_started", ""), *complete = setting(c, "scan_complete", "1");
+    if (*started && strcmp(complete, "1"))
+        activity_log(c, LOG_WARNING, "scan.recovery", c->source, NULL,
+                     "Previous scan was incomplete. Committed inventory, decisions and retained "
+                     "copies are preserved; the next scan will refresh the source inventory.");
+    free(started);
+    free(complete);
     if (recover_operations(c))
         return -1;
     progress(c, browse ? "Historical view" : "Ready");
@@ -183,12 +202,15 @@ void catalog_close(Catalog *c)
     source_writers_reset(c);
     activity_log(c, LOG_INFO, "session.close", NULL, NULL,
                  "Session closing; completed work remains saved");
+    if (c->db) {
+        sql_rollback(c);
+        sqlite3_wal_checkpoint_v2(c->db, NULL, SQLITE_CHECKPOINT_PASSIVE, NULL, NULL);
+        int rc = sqlite3_close(c->db);
+        if (rc != SQLITE_OK)
+            sql_error(c, rc, "close catalog");
+    }
     activity_close(c->log);
     c->log = NULL;
-    if (c->db) {
-        sqlite3_wal_checkpoint_v2(c->db, NULL, SQLITE_CHECKPOINT_PASSIVE, NULL, NULL);
-        sqlite3_close(c->db);
-    }
     if (c->sfd >= 0)
         close(c->sfd);
     if (c->dfd >= 0)
@@ -645,7 +667,7 @@ static int walk(Catalog *c, const char *path, int full, int64_t gen, const Ances
     if (rc)
         return rc;
     if (++scan_steps % 128 == 0) {
-        if (sql_exec(c, "COMMIT") || sql_exec(c, "BEGIN IMMEDIATE"))
+        if (sql_end(c, 0) || sql_exec(c, "BEGIN IMMEDIATE"))
             return -1;
     }
     if (!directory)
@@ -709,7 +731,7 @@ static int walk(Catalog *c, const char *path, int full, int64_t gen, const Ances
     if (n > 1)
         qsort(names, n, sizeof(*names), name_cmp);
     for (size_t i = 0; i < n; i++) {
-        if (!atomic_load(&c->cancel)) {
+        if (!atomic_load(&c->cancel) && !sqlite3_get_autocommit(c->db)) {
             char *child = join_path(path, names[i]);
             if (walk(c, child, full, gen, &here, depth + 1))
                 rc = -1;
@@ -744,25 +766,31 @@ int scan_source(Catalog *c, int full)
     atomic_store(&c->scan.started, monotonic_ns());
     atomic_store(&c->scan.phase_started, monotonic_ns());
     int64_t gen = now_ns();
+    int rc = -1;
     char g[32];
     snprintf(g, sizeof(g), "%lld", (long long)gen);
-    set_setting(c, "scan_started", g);
-    set_setting(c, "scan_complete", "0");
+    if (sql_exec(c, "BEGIN IMMEDIATE"))
+        goto stopped;
+    rc = set_setting(c, "scan_started", g);
+    if (!rc)
+        rc = set_setting(c, "scan_complete", "0");
+    if (sql_end(c, rc))
+        goto stopped;
     scan_steps = 0;
     progress(c, "Preparing the occurrence index...");
-    if (prepare_hash_groups(c)) {
-        atomic_store(&c->scan.phase, SCAN_STOPPED);
-        return -1;
-    }
+    if (prepare_hash_groups(c))
+        goto stopped;
     if (sql_exec(c, "DROP TABLE IF EXISTS scan_queue; "
                     "CREATE TABLE scan_queue(id INTEGER PRIMARY KEY,path TEXT UNIQUE,bytes "
                     "INTEGER,hashing INTEGER,error TEXT NOT NULL DEFAULT '');"))
-        return -1;
+        goto stopped;
     if (sql_exec(c, "BEGIN IMMEDIATE"))
-        return -1;
-    int rc = walk(c, "", full, gen, NULL, 0);
-    if (sql_exec(c, "COMMIT"))
-        rc = -1;
+        goto stopped;
+    rc = walk(c, "", full, gen, NULL, 0);
+    /* Filesystem errors/cancellation preserve this batch's completed entries.
+     * A failed batch commit has already rolled back and must stop enumeration. */
+    if (sqlite3_get_autocommit(c->db) || sql_end(c, 0))
+        goto stopped;
     int enumeration_ok = !rc;
     activity_log(c, rc ? LOG_WARNING : LOG_INFO, "scan.enumerated", NULL, NULL,
                  "Discovered %llu entries; planned %llu bytes for hashing",
@@ -777,11 +805,13 @@ int scan_source(Catalog *c, int full)
         sqlite3_stmt *q = sql_prepare(
             c,
             "SELECT id,path,bytes,hashing,error FROM scan_queue WHERE id>? ORDER BY id LIMIT 128");
+        if (!q)
+            goto stopped;
         sqlite3_bind_int64(q, 1, cursor);
         char *paths[128], *errors[128];
         int64_t ids[128], sizes[128];
-        int hashing[128], n = 0;
-        while (sqlite3_step(q) == SQLITE_ROW && n < 128) {
+        int hashing[128], n = 0, step;
+        while ((step = sqlite3_step(q)) == SQLITE_ROW && n < 128) {
             ids[n] = sqlite3_column_int64(q, 0);
             paths[n] = xstrdup((char *)sqlite3_column_text(q, 1));
             sizes[n] = sqlite3_column_int64(q, 2);
@@ -790,6 +820,14 @@ int scan_source(Catalog *c, int full)
             n++;
         }
         sqlite3_finalize(q);
+        if (step != SQLITE_DONE) {
+            for (int i = 0; i < n; i++) {
+                free(paths[i]);
+                free(errors[i]);
+            }
+            sql_error(c, step, "read scan queue");
+            goto stopped;
+        }
         if (!n)
             break;
         if (sql_exec(c, "BEGIN IMMEDIATE")) {
@@ -797,8 +835,7 @@ int scan_source(Catalog *c, int full)
                 free(paths[i]);
                 free(errors[i]);
             }
-            rc = -1;
-            break;
+            goto stopped;
         }
         for (int i = 0; i < n; i++) {
             if (!atomic_load(&c->cancel)) {
@@ -825,10 +862,8 @@ int scan_source(Catalog *c, int full)
             free(paths[i]);
             free(errors[i]);
         }
-        if (sql_exec(c, "COMMIT")) {
-            rc = -1;
-            break;
-        }
+        if (sql_end(c, 0))
+            goto stopped;
     }
     if (atomic_load(&c->cancel))
         rc = fail(c, "Scan cancelled");
@@ -836,21 +871,29 @@ int scan_source(Catalog *c, int full)
         rc = -1;
         atomic_fetch_add(&c->scan.errors, 1);
     }
-    sql_exec(c, "DROP TABLE scan_queue");
+    if (sql_exec(c, "DROP TABLE scan_queue"))
+        goto stopped;
     /* An unreadable directory must never make its unseen children look deleted. */
     if (!rc) {
+        if (sql_exec(c, "BEGIN IMMEDIATE"))
+            goto stopped;
         sqlite3_stmt *s = sql_prepare(c, "UPDATE entries SET present=0 WHERE seen<>?");
+        if (!s)
+            goto stopped;
         sqlite3_bind_int64(s, 1, gen);
-        sqlite3_step(s);
+        int step = sqlite3_step(s);
         sqlite3_finalize(s);
-        set_setting(c, "scan_complete", "1");
+        if (step != SQLITE_DONE) {
+            sql_error(c, step, "finish source inventory");
+            goto stopped;
+        }
+        if (sql_end(c, set_setting(c, "scan_complete", "1")))
+            goto stopped;
     }
     event_log(c, full ? "scan_full" : "scan_incremental", NULL, NULL, NULL);
     atomic_store(&c->scan.phase, SCAN_EXPORT);
-    if (export_archive(c)) {
-        atomic_store(&c->scan.phase, SCAN_STOPPED);
-        return -1;
-    }
+    if (export_archive(c))
+        goto stopped;
     atomic_store(&c->scan.finished, monotonic_ns());
     atomic_store(&c->scan.phase, rc ? SCAN_STOPPED : SCAN_DONE);
     activity_log(c, rc ? LOG_WARNING : LOG_INFO, "scan.finish", NULL, NULL,
@@ -861,6 +904,17 @@ int scan_source(Catalog *c, int full)
                  rc ? "incomplete or cancelled" : "complete");
     progress(c, rc ? "Scan finished with errors / cancelled" : "Scan complete");
     return rc;
+stopped:
+    sql_rollback(c);
+    atomic_store(&c->scan.finished, monotonic_ns());
+    atomic_store(&c->scan.phase, SCAN_STOPPED);
+    atomic_fetch_add(&c->scan.errors, 1);
+    activity_log(c, LOG_ERROR, "scan.stopped", NULL, NULL,
+                 "Scan stopped after a database error: %s. Committed batches are preserved; "
+                 "retry Scan after resolving the error.",
+                 c->error);
+    progress(c, "Scan stopped; see Activity log. Committed work is preserved.");
+    return -1;
 }
 
 static const char *entry_columns =
@@ -1463,16 +1517,21 @@ int export_archive(Catalog *c)
             (long long)now_ns());
     output_path(f, "source", c->source);
     fprintf(f, "}\n");
+    int step;
     sqlite3_stmt *s =
         sql_prepare(c, "SELECT hash,size,dest,state,verified FROM objects WHERE dest IS NOT NULL "
                        "AND hash IN(SELECT hash FROM versions WHERE accepted=1)");
-    while (sqlite3_step(s) == SQLITE_ROW) {
+    if (!s)
+        goto failed;
+    while ((step = sqlite3_step(s)) == SQLITE_ROW) {
         fprintf(f, "{\"type\":\"object\",\"sha512\":\"%s\",\"size\":%lld,",
                 sqlite3_column_text(s, 0), (long long)sqlite3_column_int64(s, 1));
         output_path(f, "destination", (char *)sqlite3_column_text(s, 2));
         fprintf(f, ",\"state\":\"%s\",\"verified_ns\":\"%lld\"}\n", sqlite3_column_text(s, 3),
                 (long long)sqlite3_column_int64(s, 4));
     }
+    if (step != SQLITE_DONE)
+        goto query_failed;
     sqlite3_finalize(s);
     /* Include ancestor metadata even when only one leaf was explicitly kept. */
     s = sql_prepare(
@@ -1484,7 +1543,9 @@ int export_archive(Catalog *c)
            "e ON "
            "e.id=v.eid LEFT JOIN empty_copies z ON z.version=v.id WHERE v.accepted=1 ORDER BY "
            "e.path,v.id");
-    while (sqlite3_step(s) == SQLITE_ROW) {
+    if (!s)
+        goto failed;
+    while ((step = sqlite3_step(s)) == SQLITE_ROW) {
         fprintf(f, "{\"type\":\"entry\",");
         output_path(f, "path", (char *)sqlite3_column_text(s, 0));
         fprintf(f,
@@ -1513,11 +1574,15 @@ int export_archive(Catalog *c)
                 sqlite3_column_text(s, 15), err, sqlite3_column_int(s, 17) ? "true" : "false");
         free(err);
     }
+    if (step != SQLITE_DONE)
+        goto query_failed;
     sqlite3_finalize(s);
     /* Operational decisions remain in the session; archive history includes only placements. */
     s = sql_prepare(c, "SELECT id,time,op,src,dst,hash FROM events WHERE op IN "
                        "('copy','reuse','move','recover') ORDER BY id");
-    while (sqlite3_step(s) == SQLITE_ROW) {
+    if (!s)
+        goto failed;
+    while ((step = sqlite3_step(s)) == SQLITE_ROW) {
         fprintf(f, "{\"type\":\"event\",\"id\":%lld,\"time_ns\":\"%lld\",\"operation\":\"%s\",",
                 (long long)sqlite3_column_int64(s, 0), (long long)sqlite3_column_int64(s, 1),
                 sqlite3_column_text(s, 2));
@@ -1530,8 +1595,11 @@ int export_archive(Catalog *c)
             fprintf(f, ",\"sha512\":\"%s\"", sqlite3_column_text(s, 5));
         fprintf(f, "}\n");
     }
+    if (step != SQLITE_DONE)
+        goto query_failed;
     sqlite3_finalize(s);
-    sql_exec(c, "COMMIT");
+    if (sql_end(c, 0))
+        goto failed;
     int bad = ferror(f) || fflush(f) || fsync(fd);
     if (fclose(f))
         bad = 1;
@@ -1540,6 +1608,13 @@ int export_archive(Catalog *c)
     if (renameat(c->mfd, "archive.jsonl.tmp", c->mfd, "archive.jsonl") || fsync(c->mfd))
         return fail(c, "Manifest commit failed: %s", strerror(errno));
     return 0;
+query_failed:
+    sql_error(c, step, "read portable index snapshot");
+    sqlite3_finalize(s);
+failed:
+    sql_rollback(c);
+    fclose(f);
+    return -1;
 }
 
 static char *json_value(Catalog *c, const char *line, const char *key)
@@ -1582,7 +1657,10 @@ int import_archive(Catalog *c, const char *filename)
     char *line = NULL;
     size_t cap = 0;
     int rc = 0, header = 0;
-    sql_exec(c, "BEGIN IMMEDIATE");
+    if (sql_exec(c, "BEGIN IMMEDIATE")) {
+        fclose(f);
+        return -1;
+    }
     while (getline(&line, &cap, f) >= 0) {
         char *type = json_value(c, line, "type");
         if (!type) {
@@ -1738,6 +1816,5 @@ int import_archive(Catalog *c, const char *filename)
                "WHERE v.hash='" EMPTY_SHA512
                "' AND v.size=0 AND (v.mode&61440)=32768 AND v.accepted=1 AND o.dest IS NOT NULL;"
                "DELETE FROM objects WHERE hash='" EMPTY_SHA512 "' AND size=0;");
-    sql_exec(c, rc ? "ROLLBACK" : "COMMIT");
-    return rc;
+    return sql_end(c, rc);
 }

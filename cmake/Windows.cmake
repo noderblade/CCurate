@@ -69,6 +69,16 @@ target_compile_options(diagnosticscheck PRIVATE -Wall -Wextra -Wformat=2)
 target_link_libraries(diagnosticscheck PRIVATE shell32 user32)
 enable_testing()
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
+add_executable(databasecheck tests/database_driver.c src/catalog.c src/util.c src/activity.c
+ src/operations.c src/platform/windows/source_access_windows.c
+ src/platform/windows/fs_windows.c src/platform/windows/metadata_windows.c)
+target_include_directories(databasecheck PRIVATE include)
+target_compile_definitions(databasecheck PRIVATE _GNU_SOURCE _FILE_OFFSET_BITS=64
+ _WIN32_WINNT=0x0a00 WINVER=0x0a00)
+target_compile_options(databasecheck PRIVATE -Wall -Wextra -Wformat=2)
+target_link_libraries(databasecheck PRIVATE OpenSSL::Crypto PkgConfig::SQLITE Threads::Threads bcrypt advapi32)
+add_test(NAME database_recovery COMMAND ${Python3_EXECUTABLE}
+ ${CMAKE_CURRENT_SOURCE_DIR}/tests/database_recovery.py $<TARGET_FILE:ccurate> $<TARGET_FILE:databasecheck>)
 add_test(NAME windows_startup COMMAND ${Python3_EXECUTABLE}
  ${CMAKE_CURRENT_SOURCE_DIR}/tests/windows_startup.py $<TARGET_FILE:ccurate> $<BOOL:${CCURATE_GUI}> $<TARGET_FILE:diagnosticscheck>)
 add_test(NAME windows_integration COMMAND ${Python3_EXECUTABLE}

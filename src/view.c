@@ -86,9 +86,11 @@ static void target_rows(ViewService *s, ViewRequest *r, ViewResult *out)
     if (!s->target_cache || strcmp(s->target_cache, r->path[0]) || r->target_refresh) {
         free(s->target_cache);
         s->target_cache = NULL;
-        sql_exec(c, "DROP TABLE IF EXISTS temp.target_listing;CREATE TEMP TABLE target_listing("
-                    "name TEXT PRIMARY KEY,kind TEXT,size INTEGER,mtime INTEGER,btime INTEGER,mode "
-                    "INTEGER,uid INTEGER,gid INTEGER);");
+        if (sql_exec(
+                c, "DROP TABLE IF EXISTS temp.target_listing;CREATE TEMP TABLE target_listing("
+                   "name TEXT PRIMARY KEY,kind TEXT,size INTEGER,mtime INTEGER,btime INTEGER,mode "
+                   "INTEGER,uid INTEGER,gid INTEGER);"))
+            return;
         int fd = open_beneath(c->dfd, r->path[0], O_RDONLY | O_DIRECTORY, 0);
         DIR *d = fd >= 0 ? fdopendir(fd) : NULL;
         if (!d) {
@@ -97,8 +99,13 @@ static void target_rows(ViewService *s, ViewRequest *r, ViewResult *out)
             return;
         }
         sqlite3_stmt *insert = sql_prepare(c, "INSERT INTO target_listing VALUES(?,?,?,?,?,?,?,?)");
+        if (!insert || sql_exec(c, "BEGIN")) {
+            sqlite3_finalize(insert);
+            closedir(d);
+            return;
+        }
         struct dirent *de;
-        sql_exec(c, "BEGIN");
+        int rc = 0;
         while (!interrupted(s) && (de = readdir(d))) {
             if (!strcmp(de->d_name, ".") || !strcmp(de->d_name, ".."))
                 continue;
@@ -122,17 +129,21 @@ static void target_rows(ViewService *s, ViewRequest *r, ViewResult *out)
             sqlite3_bind_int64(insert, 6, st.st_mode);
             sqlite3_bind_int64(insert, 7, st.st_uid);
             sqlite3_bind_int64(insert, 8, st.st_gid);
-            if (sqlite3_step(insert) != SQLITE_DONE)
+            int step = sqlite3_step(insert);
+            if (step != SQLITE_DONE) {
+                rc = sql_error(c, step, "build destination listing");
                 break;
+            }
             sqlite3_reset(insert);
             sqlite3_clear_bindings(insert);
         }
         sqlite3_finalize(insert);
         closedir(d);
-        sql_exec(c, "COMMIT");
-        if (interrupted(s))
+        if (sql_end(c, rc || interrupted(s) ? -1 : 0))
             return;
-        sql_exec(c, "CREATE INDEX target_order ON target_listing((kind='directory') DESC,name)");
+        if (sql_exec(c,
+                     "CREATE INDEX target_order ON target_listing((kind='directory') DESC,name)"))
+            return;
         s->target_cache = xstrdup(r->path[0]);
     }
     sqlite3_stmt *q = sql_prepare(
@@ -214,8 +225,8 @@ static ViewResult *query(ViewService *s, ViewRequest *r)
     out->serial = s->executing;
     out->flags = r->flags;
     Catalog *c = &s->reader;
-    if (!r->fast)
-        prepare_hash_groups(c);
+    if (!r->fast && prepare_hash_groups(c))
+        return out;
     if (r->flags & VIEW_LEFT)
         target_rows(s, r, out);
     if (!interrupted(s) && (r->flags & VIEW_RIGHT)) {
@@ -278,7 +289,7 @@ static int save_settings(ViewService *s, char **values)
     int rc = 0;
     for (int i = 0; i < VIEW_SETTING_COUNT; i++)
         rc |= set_setting(&s->reader, keys[i], values[i]);
-    sql_exec(&s->reader, rc ? "ROLLBACK" : "COMMIT");
+    rc = sql_end(&s->reader, rc);
     if (!rc)
         activity_log(&s->reader, LOG_DEBUG, "settings.saved", NULL, NULL,
                      "Pane locations, scale, font, theme and layout saved");
@@ -329,15 +340,19 @@ static void *run(void *arg)
             break;
         }
         if (r) {
-            sqlite3_progress_handler(s->reader.db, 1000, interrupted, s);
             const unsigned order[] = {VIEW_LEFT,    VIEW_RIGHT,   VIEW_CYCLE,
                                       VIEW_DETAILS, VIEW_SUMMARY, VIEW_BALANCE};
             unsigned wanted = r->flags;
             for (unsigned i = 0; i < sizeof(order) / sizeof(order[0]) && !interrupted(s); i++) {
                 if (!(wanted & order[i]))
                     continue;
+                sqlite3_progress_handler(s->reader.db, 1000, interrupted, s);
                 r->flags = order[i];
                 ViewResult *out = query(s, r), *old = NULL;
+                /* No request may hand a transaction/lock to the next request or
+                 * to the settings writer. Cleanup is deliberately not cancellable. */
+                sqlite3_progress_handler(s->reader.db, 0, NULL, NULL);
+                sql_rollback(&s->reader);
                 pthread_mutex_lock(&s->mutex);
                 if (!interrupted(s)) {
                     if (s->ready && s->ready->serial == out->serial) {
@@ -380,6 +395,8 @@ static void *run(void *arg)
         }
         atomic_store(&s->running, 0);
     }
+    sqlite3_progress_handler(s->reader.db, 0, NULL, NULL);
+    sql_rollback(&s->reader);
     atomic_store(&s->running, 0);
     return NULL;
 }

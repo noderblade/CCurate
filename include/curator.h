@@ -152,7 +152,12 @@ void human_bytes(uint64_t n, char out[40]);
 void date_text(int64_t ns, char out[40]);
 void progress(Catalog *c, const char *f, ...);
 int fail(Catalog *c, const char *f, ...);
+int sql_error(Catalog *c, int rc, const char *operation);
 int sql_exec(Catalog *c, const char *sql);
+/* Rollback disables query cancellation so cleanup cannot itself be cancelled.
+ * Callers that continue cancellable work must reinstall their progress handler. */
+int sql_rollback(Catalog *c);
+int sql_end(Catalog *c, int result);
 sqlite3_stmt *sql_prepare(Catalog *c, const char *sql);
 void bind_text(sqlite3_stmt *s, int i, const char *v);
 char *setting(Catalog *c, const char *key, const char *fallback);

@@ -232,6 +232,12 @@ and preview restrictions. Windows work is gated by the independent Linux suite.
 Keep the complete `.ccurate` directory with the destination files. Reopen the
 same source and destination to resume your CCurate session.
 
+After a forced exit, reopen the same session. SQLite recovers committed WAL data,
+and the next scan refreshes the inventory while preserving decisions and retained
+copies. Do not delete `catalog.sqlite-wal`, `catalog.sqlite-shm` or `session.lock`
+to clear a lock. If another process still owns the session, close it first. See
+[recovery and database locks](USER_GUIDE.md#recovery-and-database-locks) for diagnostics.
+
 SQLite provides transactional session state. JSON Lines provides a readable,
 streamable export: one JSON object per line, suitable for large catalogs and
 independent tools. Completed operations or batches publish the export atomically.
