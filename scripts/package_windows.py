@@ -84,10 +84,15 @@ shutil.copytree('docs', destination / 'docs', dirs_exist_ok=True)
     subprocess.check_output(['pacman', '-Q'], text=True, encoding='utf-8'), encoding='utf-8')
 license_dir = destination / 'licenses'
 shutil.copytree(prefix / 'share/licenses', license_dir, dirs_exist_ok=True)
-for name in ['LICENSE', 'LICENSE.md', 'LICENSE.txt']:
+for name in ['LICENSE', 'LICENSE.md', 'LICENSE.txt', 'NOTICE', 'THIRD_PARTY.md']:
     source = Path('vendor/Raven') / name
     if source.exists():
         shutil.copy2(source, license_dir / ('Raven-' + name))
+for source in (Path('vendor/Raven') / 'third_party').rglob('*'):
+    if source.is_file() and source.name.upper().startswith(('LICENSE', 'COPYING', 'NOTICE', 'OFL')):
+        target = license_dir / 'Raven' / source.relative_to('vendor/Raven/third_party')
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source, target)
 records = []
 for path in sorted(destination.rglob('*')):
     if path.is_file():
