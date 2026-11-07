@@ -114,6 +114,20 @@ class WindowsCuration(unittest.TestCase):
         self.assertNotEqual(self.sql('SELECT state FROM objects WHERE dest=\'one.txt\''), [('verified',)])
         self.assertEqual((self.src / 'A/one.txt').read_bytes(), self.data)
 
+    def test_case_sensitive_directory_is_not_misidentified(self):
+        directory = self.src / 'sensitive'; directory.mkdir()
+        result = subprocess.run(['fsutil', 'file', 'setCaseSensitiveInfo', str(directory), 'enable'],
+                                capture_output=True)
+        if result.returncode:
+            self.skipTest('This Windows host cannot create a case-sensitive NTFS fixture')
+        (directory / 'a.txt').write_bytes(b'lower case content')
+        (directory / 'A.txt').write_bytes(b'UPPER case content')
+        self.run_app('scan', ok=False)
+        self.assertTrue(self.sql("SELECT error FROM entries WHERE path='sensitive'")[0][0])
+        self.assertEqual(self.sql("SELECT COUNT(*) FROM entries WHERE path LIKE 'sensitive/%'"), [(0,)])
+        self.assertEqual((directory / 'a.txt').read_bytes(), b'lower case content')
+        self.assertEqual((directory / 'A.txt').read_bytes(), b'UPPER case content')
+
     def test_session_lock(self):
         with (self.dst / '.ccurate/session.lock').open('r+b', buffering=0) as lock:
             msvcrt.locking(lock.fileno(), msvcrt.LK_NBLCK, 1)

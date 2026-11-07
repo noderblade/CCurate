@@ -188,6 +188,24 @@ static int component(const char *name, int create)
     }
     return 1;
 }
+static int ordinary_directory(HANDLE handle)
+{
+    DWORD flags = 0;
+    if (!GetFileInformationByHandleEx(handle, FileCaseSensitiveInfo, &flags, sizeof(flags))) {
+        DWORD error = GetLastError();
+        if (error != ERROR_INVALID_PARAMETER && error != ERROR_NOT_SUPPORTED &&
+            error != ERROR_INVALID_FUNCTION) {
+            cc_win_errno(error);
+            return 0;
+        }
+    } else if (flags & 1) {
+        /* Case-sensitive NTFS directories need different lookup/collision rules.
+         * Refuse them instead of hashing the wrong case variant of a name. */
+        errno = ENOTSUP;
+        return 0;
+    }
+    return 1;
+}
 HANDLE cc_win_relative_handle(int root, const char *leaf, ACCESS_MASK access, ULONG disposition,
                               ULONG options, int allow_reparse)
 {
@@ -206,8 +224,10 @@ HANDLE cc_win_relative_handle(int root, const char *leaf, ACCESS_MASK access, UL
         errno = ELOOP;
         return INVALID_HANDLE_VALUE;
     }
+    if (!ordinary_directory(parent))
+        return INVALID_HANDLE_VALUE;
     if (!strcmp(leaf, ".") && disposition == FILE_OPEN) {
-        HANDLE h = ReOpenFile(parent, access, FILE_SHARE_READ,
+        HANDLE h = ReOpenFile(parent, access, FILE_SHARE_READ | FILE_SHARE_WRITE,
                               FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT);
         if (h == INVALID_HANDLE_VALUE)
             cc_win_errno(GetLastError());
@@ -236,7 +256,7 @@ HANDLE cc_win_relative_handle(int root, const char *leaf, ACCESS_MASK access, UL
     HANDLE h = INVALID_HANDLE_VALUE;
     NTSTATUS result = nt_create(
         &h, access | SYNCHRONIZE, &object, &status, NULL, FILE_ATTRIBUTE_NORMAL,
-        (options & FILE_DIRECTORY_FILE) ? FILE_SHARE_READ
+        (options & FILE_DIRECTORY_FILE) ? FILE_SHARE_READ | FILE_SHARE_WRITE
                                         : FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
         disposition, options | FILE_OPEN_REPARSE_POINT | FILE_SYNCHRONOUS_IO_NONALERT, NULL, 0);
     free(wide);
@@ -318,7 +338,7 @@ int cc_win_open(const char *path, int flags, ...)
                                           : OPEN_EXISTING;
     HANDLE h = CreateFileW(
         wide, file_access(flags),
-        (flags & O_DIRECTORY) ? FILE_SHARE_READ
+        (flags & O_DIRECTORY) ? FILE_SHARE_READ | FILE_SHARE_WRITE
                               : FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
         NULL, disposition,
         FILE_FLAG_BACKUP_SEMANTICS | ((flags & O_NOFOLLOW) ? FILE_FLAG_OPEN_REPARSE_POINT : 0),
@@ -478,6 +498,9 @@ int cc_win_renameat2(int from, const char *a, int to, const char *b, unsigned fl
      * supported Windows versions can reject a non-NULL RootDirectory. */
     IO_STATUS_BLOCK status;
     NTSTATUS result = nt_set(h, &status, info, (ULONG)size, FileRenameInformation);
+    if (result < 0)
+        fprintf(stderr, "Windows rename failed (NTSTATUS 0x%08lx, error %lu).\n",
+                (unsigned long)result, (unsigned long)nt_error(result));
     int rc = result < 0 ? cc_win_errno(nt_error(result)) : 0;
     free(name);
     free(info);
@@ -604,10 +627,12 @@ CCWinDir *cc_win_fdopendir(int fd)
         errno = ENOTDIR;
         return NULL;
     }
+    if (!ordinary_directory(cc_win_handle(fd)))
+        return NULL;
     CCWinDir *dir = xmalloc(sizeof(*dir));
-    dir->reader =
-        ReOpenFile(cc_win_handle(fd), FILE_LIST_DIRECTORY | FILE_READ_ATTRIBUTES, FILE_SHARE_READ,
-                   FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT);
+    dir->reader = ReOpenFile(cc_win_handle(fd), FILE_LIST_DIRECTORY | FILE_READ_ATTRIBUTES,
+                             FILE_SHARE_READ | FILE_SHARE_WRITE,
+                             FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT);
     if (dir->reader == INVALID_HANDLE_VALUE) {
         DWORD error = GetLastError();
         free(dir);

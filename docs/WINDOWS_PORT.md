@@ -61,7 +61,8 @@ stream metadata. Use the Activity log and balance report to identify these files
 Catalog paths remain independent of destination naming rules. Historical Linux
 names can be retained in JSONL; Windows cannot materialize every POSIX filename.
 Invalid destination components, traversal attempts and reserved device names are
-refused. Case-sensitive NTFS directories, UNC/SMB semantics, ReFS, FAT/exFAT, EFS,
+refused. Case-sensitive NTFS directories are refused explicitly rather than
+resolving two distinct names to the same file. UNC/SMB semantics, ReFS, FAT/exFAT, EFS,
 cloud placeholders and actual power-loss recovery need additional validation.
 Do not infer support for those scenarios from NTFS CI fixtures.
 

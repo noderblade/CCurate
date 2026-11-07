@@ -33,7 +33,7 @@ class WindowsPreviews(unittest.TestCase):
         text.write_text('Important text document.\n', encoding='utf-8')
         self.preview(text, 'Important text document.')
         binary = self.root / 'binary.bin'
-        binary.write_bytes(bytes(range(256)))
+        binary.write_bytes(bytes(32) + bytes(range(256)))
         self.preview(binary, '00 01 02 03')
 
     def test_png_and_jpeg(self):

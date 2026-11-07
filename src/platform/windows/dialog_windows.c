@@ -31,6 +31,10 @@ char *cc_win_choose_folder(Rid parent, const char *title, const char *initial)
                                            FOS_DONTADDTORECENT | FOS_PATHMUSTEXIST);
     wchar_t *wide_title = cc_win_wide(title);
     wchar_t *wide_initial = initial ? cc_win_wide(initial) : NULL;
+    if (wide_initial)
+        for (wchar_t *p = wide_initial; *p; p++)
+            if (*p == '/')
+                *p = '\\';
     if (wide_title)
         IFileOpenDialog_SetTitle(dialog, wide_title);
     if (wide_initial && SUCCEEDED(SHCreateItemFromParsingName(
