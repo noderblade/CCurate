@@ -136,12 +136,16 @@ char *join_path(const char *a, const char *b)
 }
 char *parent_path(const char *s)
 {
+#ifdef _WIN32
+    return cc_win_parent_path(s);
+#else
     char *r = xstrdup(s), *p = strrchr(r, '/');
     if (p)
         *p = 0;
     else
         *r = 0;
     return r;
+#endif
 }
 const char *base_name(const char *s)
 {
@@ -150,6 +154,9 @@ const char *base_name(const char *s)
 }
 int valid_relative(const char *s, int empty)
 {
+#ifdef _WIN32
+    return cc_win_valid_relative(s, empty);
+#else
     if (!s || *s == '/' || (!*s && !empty))
         return 0;
     const char *p = s;
@@ -165,12 +172,17 @@ int valid_relative(const char *s, int empty)
             return 0;
     }
     return 1;
+#endif
 }
 int descendant(const char *p, const char *root)
 {
+#ifdef _WIN32
+    return cc_win_descendant(p, root);
+#else
     size_t n = strlen(root);
     return !n || (!memcmp(p, root, strlen(p) < n ? strlen(p) : n) && strlen(p) >= n &&
                   (p[n] == 0 || p[n] == '/'));
+#endif
 }
 int parent_beneath(int root, const char *path, int create, char **leaf)
 {

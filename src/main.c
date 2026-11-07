@@ -9,6 +9,10 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#ifdef _WIN32
+#include "platform/windows/native_windows.h"
+#define main ccurate_main
+#endif
 static Catalog *active;
 static void stop(int sig)
 {

@@ -3,7 +3,11 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <fontconfig/fontconfig.h>
+#ifdef _WIN32
+#include "platform/windows/fonts_windows.h"
+#else
 #include <pwd.h>
+#endif
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
@@ -32,6 +36,9 @@ static int font_order(const void *a, const void *b)
 }
 static void invoking_user_fonts(FcConfig *config)
 {
+#ifdef _WIN32
+    cc_win_font_dirs(config);
+#else
     /* sudo normally changes HOME. Include the invoking user's standard font
      * directories without changing process environment or user configuration. */
     if (geteuid() != 0)
@@ -55,6 +62,7 @@ static void invoking_user_fonts(FcConfig *config)
             FcConfigAppFontAddDir(config, (const FcChar8 *)dir);
         free(dir);
     }
+#endif
 }
 MonoFonts *mono_fonts_find(void)
 {

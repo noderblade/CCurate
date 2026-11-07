@@ -5,7 +5,11 @@
 #include <stdatomic.h>
 #include <stdint.h>
 #include <stdio.h>
+#ifdef _WIN32
+#include "platform/windows/fs_windows.h"
+#else
 #include <sys/stat.h>
+#endif
 
 /* CCurate session state lives on the destination. */
 #define META_DIR ".ccurate"

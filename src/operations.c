@@ -5,7 +5,9 @@
 #include <openssl/evp.h>
 #include <stdlib.h>
 #include <string.h>
+#ifndef _WIN32
 #include <sys/random.h>
+#endif
 #include <unistd.h>
 
 static int done(sqlite3_stmt *s)
