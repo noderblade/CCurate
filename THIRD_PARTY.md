@@ -23,6 +23,12 @@ dependency's upstream source. The included `FILES.json` records the packaged
 files and their SHA-256 values. Raven's license is also included. These notices
 describe the bundled components; they do not replace their respective terms.
 
+The Windows `software-vulkan` directory includes Mesa Lavapipe and its LLVM/native
+dependencies for CPU rendering. These are staged from the same MSYS2 UCRT64
+packages as the rest of the runtime; their package versions, notices and file
+hashes are included in the records above. The driver is loaded only inside the
+application and is not installed as a system Vulkan driver.
+
 ## Color palette references
 
 The application's semantic colors are adaptations of these public palettes;

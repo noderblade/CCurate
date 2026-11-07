@@ -8,6 +8,7 @@ import re
 import shutil
 import subprocess
 import sys
+from windows_software_vulkan import stage as stage_software_vulkan
 
 exe, destination = (Path(value).resolve() for value in sys.argv[1:3])
 compiler = shutil.which('gcc')
@@ -93,7 +94,8 @@ for source in (Path('vendor/Raven') / 'third_party').rglob('*'):
         target = license_dir / 'Raven' / source.relative_to('vendor/Raven/third_party')
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(source, target)
-for name in ('CCurate-Debug.cmd', 'CCurate-Debug.ps1'):
+stage_software_vulkan(destination / 'software-vulkan', prefix)
+for name in ('CCurate-Debug.cmd', 'CCurate-Debug.ps1', 'CCurate-Software.cmd'):
     shutil.copy2(Path('scripts/windows') / name, destination / name)
 records = []
 for path in sorted(destination.rglob('*')):

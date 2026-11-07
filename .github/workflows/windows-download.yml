@@ -97,8 +97,10 @@ jobs:
           Latest automatically published Windows x64 build of CCurate.
 
           Download **CCurate-windows-x64.zip**, extract the complete archive and
-          run **ccurate.exe**. Requires Windows 10/11 x64 and a Vulkan graphics
-          driver. MSYS2 is not required to run the package.
+          run **ccurate.exe**. Requires Windows 10/11 x64. System Vulkan is preferred;
+          the bundled Mesa Lavapipe CPU renderer is used if graphics initialization
+          fails. **CCurate-Software.cmd** forces software rendering, including in VMs.
+          MSYS2 and a hardware Vulkan driver are not required for CPU rendering.
 
           **Experimental Windows port. Linux remains the primary platform;
           Linux users should build from source.**

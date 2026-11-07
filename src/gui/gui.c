@@ -3,6 +3,7 @@
 #include "gui_browser.h"
 #include "gui_controller.h"
 #include "gui_fonts.h"
+#include "gui_graphics.h"
 #include "gui_input.h"
 #include "gui_jobs.h"
 #include "gui_navigation.h"
@@ -159,7 +160,7 @@ int gui_main(Catalog *c, int historical)
     cc_win_startup_note("Initializing the curation workspace (Vulkan / display).");
 #endif
     Rerror_set_callback(raven_error);
-    if (!Rinit_ex(&init)) {
+    if (!gui_graphics_init(&init)) {
         sqlite3_close(ui->reader.db);
         return fail(c, "Raven could not initialize Vulkan / display");
     }
@@ -169,7 +170,7 @@ int gui_main(Catalog *c, int historical)
     Rtheme_set_font(ui->font);
     ui->window = Rwindow_create("CCurate - manual archive curation", 1500, 960, R_WINDOW_DEFAULT);
     if (ui->window == R_INVALID_ID) {
-        Rshutdown();
+        gui_graphics_shutdown();
         sqlite3_close(ui->reader.db);
         return fail(c, "Window creation failed");
     }
@@ -216,7 +217,7 @@ int gui_main(Catalog *c, int historical)
     Rwidget_focus(ui->canvas);
     ui->view = view_start(c);
     if (!ui->view) {
-        Rshutdown();
+        gui_graphics_shutdown();
         sqlite3_close(ui->reader.db);
         return fail(c, "Cannot start view worker");
     }
@@ -308,7 +309,7 @@ int gui_main(Catalog *c, int historical)
     preview_free(&ui->ready);
     preview_free(&ui->preview);
     gui_font_shutdown(ui);
-    Rshutdown();
+    gui_graphics_shutdown();
     for (int i = 0; i < 2; i++) {
         gui_clear_marks(ui->pane + i);
         gui_navigation_free(ui->pane + i);

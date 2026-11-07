@@ -212,11 +212,21 @@ saves the session and audits the result. Screenshots and diagnostics are retaine
 
 The packaging check runs the complete integration, restricted preview and GUI
 scripts against the staged runtime. Core and preview checks have only Windows
-system directories on `PATH`; the GUI adds an isolated software Vulkan driver
-directory, with the application toolchain still absent. This is
+system directories on `PATH`, including the GUI checks. The application-local
+software Vulkan driver is loaded directly, without registry registration or a
+driver directory on PATH. This is
 stronger than link success, but still runs on the CI host rather than a fresh
 consumer Windows installation. See [the Windows guide](docs/WINDOWS_PORT.md)
 for unsupported filesystem features and preview isolation differences.
+
+`tests/windows_software_rendering.py` verifies automatic fallback on a runner
+without an installed ICD, explicit CPU mode, a visible/nonblank first frame,
+the clickable software launcher, and missing-driver diagnostics with CLI
+availability preserved. `graphicscheck` exercises four complete software-device
+creation/render/shutdown cycles to cover the folder-chooser/workspace lifecycle.
+The native and packaged tests retain screenshots and startup logs. Invalid
+driver-path overrides are supplied deliberately; direct driver loading must
+work independently of them, including on the elevated hosted runner.
 
 ## Windows startup diagnostics
 

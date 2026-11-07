@@ -122,6 +122,12 @@ See [TESTING.md](TESTING.md) for executed checks and environmental limits.
 
 ## Windows boundary
 
+`gui_graphics.h` dispatches Windows initialization and shutdown to
+`graphics_windows.c/.h`; Linux calls Raven directly. Windows first tries the
+system Vulkan renderer, then loads bundled Lavapipe through direct-driver loading
+and gives Raven an external device. CCurate releases that device after Raven
+stops rendering. The fallback does not register a system ICD or modify Raven.
+
 Linux is primary. `CMakeLists.txt` selects `cmake/Windows.cmake` only for WIN32,
 then returns; the existing Linux target graph remains separate. Windows sources
 live in `src/platform/windows/` with interfaces in `include/platform/windows/`.
