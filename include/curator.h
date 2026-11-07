@@ -13,7 +13,10 @@
 
 /* CCurate session state lives on the destination. */
 #define META_DIR ".ccurate"
-#define SCHEMA_VERSION 1
+#define SCHEMA_VERSION 2
+#define EMPTY_SHA512                                                                               \
+    "cf83e1357eefb8bdf1542850d66d8007d620e4050b5715dc83f4a921d36ce9ce47"                           \
+    "d0d13c5d85f2b0ff8318d2877eec2f63b931bd47417a81a538327af927da3e"
 #define HASH_LEN 128
 enum { SCAN_IDLE, SCAN_ENUMERATE, SCAN_HASH, SCAN_EXPORT, SCAN_DONE, SCAN_STOPPED };
 typedef struct {
@@ -52,6 +55,7 @@ typedef struct {
     StorageStatus storage;
     pthread_mutex_t progress_mutex;
     char progress[1024], error[1024];
+    struct SourceWriters *writers;
 } Catalog;
 typedef struct {
     int64_t id, version, size, mtime, btime, mode, uid, gid, dev, ino;

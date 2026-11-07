@@ -1,11 +1,11 @@
 # Validation
 
-CCurate 0.1.0 plus the Windows port, validation updated 7 November 2026.
+CCurate 0.1.0 plus the Windows port and scan/empty-file fixes, validation updated 7 November 2026.
 Linux remains the primary platform.
 
 ## Build and core behavior
 
-The graphical/media build and the core-only build pass the 24 black-box
+The graphical/media build and the core-only build pass the 32 black-box
 integration cases in `tests/integration.py`. Tests use disposable source and
 destination directories and exercise real copying, SHA-512 verification,
 deduplication, retained ancestors, rejection/restoration, source changes,
@@ -26,9 +26,25 @@ Both configurations create and reopen `.ccurate` sessions. The core-only build
 excludes Raven, Fontconfig, GIO and image/PDF/audio/video decoder dependencies.
 Permission-denied cases require an unprivileged test process.
 
+## Empty files and changing sources
+
+`tests/scan_regressions.py` contributes eight cases to both platform integration
+suites: independent empty copies, collisions and metadata versions, move/audit
+and offline reconstruction, interrupted publication, schema-1 session and JSONL
+upgrades, writable-handle deferral with retained history, and continuing past a
+new busy file. Tests also confirm read-only handles do not block scanning, the
+unsecured filter includes deferred files, retries work, and warnings reach disk.
+
+The Linux `changing_hash` CTest runs `tests/hash_driver.c` with a test-only link
+wrapper. It grows, truncates or rewrites a real fixture immediately after the
+first read, or returns EAGAIN, and requires UNSCANNED after one read with no
+published digest. An unchanged fixture must read exactly its initial size.
+This avoids timing races and exercises changes after writer discovery.
+
 ## Large catalogs and background work
 
-`tests/stress.py` passes a synthetic one-million-entry catalog through paged
+`tests/stress.py` passes two synthetic one-million-entry catalogs (identical
+nonempty content and independent empty files) through paged
 listing, duplicate counts, history/unsecured/name filters, size sorting,
 selection anchors, query cancellation, storage metrics and saved preferences.
 The same suite scans 2,000 real small files plus a 1 GiB sparse file and checks
@@ -171,7 +187,7 @@ the development toolchain removed from the application's `PATH`. The NTFS
 case-sensitive-directory and junction fixtures ran successfully on this host.
 
 `tests/windows_integration.py` uses real disposable NTFS directories and the
-native executable. Its 18 cases cover binary bytes and SHA-512, deduplication,
+native executable. Its platform-specific cases cover binary bytes and SHA-512, deduplication,
 Unicode/emoji names, hidden/system attributes, long paths, case collisions,
 traversal refusal, invalid root pairs, session locking, changed source versions,
 review/reject/restore, complete directories, target moves, publication recovery,

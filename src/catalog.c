@@ -1,4 +1,5 @@
 #include "curator.h"
+#include "source_access.h"
 #include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -38,6 +39,9 @@ static const char *schema =
     "versions(id));"
     "CREATE TABLE IF NOT EXISTS objects(hash TEXT PRIMARY KEY,size INTEGER NOT NULL,dest TEXT "
     "UNIQUE,state TEXT DEFAULT 'missing',verified INTEGER DEFAULT 0,copied_from INTEGER);"
+    "CREATE TABLE IF NOT EXISTS empty_copies(version INTEGER PRIMARY KEY REFERENCES versions(id),"
+    "dest TEXT NOT NULL,state TEXT NOT NULL DEFAULT 'verified',verified INTEGER DEFAULT 0);"
+    "CREATE INDEX IF NOT EXISTS empty_destination ON empty_copies(dest);"
     "CREATE TABLE IF NOT EXISTS operations(id INTEGER PRIMARY KEY,kind TEXT,src TEXT,dst TEXT,temp "
     "TEXT,hash TEXT,state TEXT DEFAULT 'pending');"
     "CREATE TABLE IF NOT EXISTS discoveries(eid INTEGER PRIMARY KEY REFERENCES entries(id),"
@@ -45,21 +49,23 @@ static const char *schema =
     "INTEGER);"
     "CREATE TABLE IF NOT EXISTS events(id INTEGER PRIMARY KEY,time INTEGER,op TEXT,src TEXT,dst "
     "TEXT,hash TEXT);";
-/* Incremental occurrence counts: even a million identical empty files cost one
- * indexed lookup per displayed row, rather than one million-row count per row. */
+/* Only nonempty, successfully scanned content participates in duplicate groups. */
 static const char *group_schema =
     "CREATE TABLE IF NOT EXISTS hash_groups(hash TEXT PRIMARY KEY,occurrences INTEGER NOT NULL);"
-    "CREATE TRIGGER IF NOT EXISTS current_group_update AFTER UPDATE OF current,present ON entries "
-    "WHEN OLD.current IS NOT NEW.current OR OLD.present<>NEW.present BEGIN "
-    "UPDATE hash_groups SET occurrences=occurrences-1 WHERE OLD.present=1 AND hash=(SELECT hash "
-    "FROM versions WHERE id=OLD.current);"
+    "CREATE TRIGGER IF NOT EXISTS current_group_update AFTER UPDATE OF current,present,error ON "
+    "entries "
+    "WHEN OLD.current IS NOT NEW.current OR OLD.present<>NEW.present OR OLD.error<>NEW.error BEGIN "
+    "UPDATE hash_groups SET occurrences=occurrences-1 WHERE OLD.present=1 AND OLD.error='' AND "
+    "hash=(SELECT hash "
+    "FROM versions WHERE id=OLD.current AND size>0);"
     "INSERT INTO hash_groups(hash,occurrences) SELECT hash,1 FROM versions WHERE id=NEW.current "
-    "AND NEW.present=1 AND hash IS NOT NULL ON CONFLICT(hash) DO UPDATE SET "
+    "AND NEW.present=1 AND NEW.error='' AND size>0 AND hash IS NOT NULL ON CONFLICT(hash) DO "
+    "UPDATE SET "
     "occurrences=occurrences+1;END;";
 int prepare_hash_groups(Catalog *c)
 {
     char *value = setting(c, "hash_groups_ready", "0");
-    int ready = !strcmp(value, "1");
+    int ready = !strcmp(value, "2");
     free(value);
     if (ready)
         return 0;
@@ -67,10 +73,11 @@ int prepare_hash_groups(Catalog *c)
         return -1;
     int rc = sql_exec(
         c, "DELETE FROM hash_groups;INSERT INTO hash_groups SELECT v.hash,COUNT(*) FROM entries e "
-           "JOIN versions v ON v.id=e.current WHERE e.present=1 AND v.hash IS NOT NULL GROUP BY "
+           "JOIN versions v ON v.id=e.current WHERE e.present=1 AND e.error='' AND v.size>0 AND "
+           "v.hash IS NOT NULL GROUP BY "
            "v.hash;");
     if (!rc)
-        rc = set_setting(c, "hash_groups_ready", "1");
+        rc = set_setting(c, "hash_groups_ready", "2");
     sql_exec(c, rc ? "ROLLBACK" : "COMMIT");
     return rc;
 }
@@ -119,7 +126,23 @@ int catalog_open(Catalog *c, const char *source, const char *destination, int br
     sqlite3_finalize(v);
     if (version > SCHEMA_VERSION)
         return fail(c, "Database is from a newer application; refusing to modify it");
-    if (sql_exec(c, schema) || sql_exec(c, group_schema) || sql_exec(c, "PRAGMA user_version=1"))
+    if (sql_exec(c, schema))
+        return -1;
+    if (version < 2 &&
+        sql_exec(
+            c,
+            "BEGIN IMMEDIATE;"
+            "INSERT OR IGNORE INTO empty_copies(version,dest,state,verified) "
+            "SELECT v.id,o.dest,o.state,o.verified FROM versions v JOIN objects o ON o.hash=v.hash "
+            "WHERE v.hash='" EMPTY_SHA512
+            "' AND v.size=0 AND (v.mode&61440)=32768 AND (v.accepted=1 OR EXISTS(SELECT 1 FROM "
+            "rejected_retention r WHERE r.version=v.id)) AND o.dest IS NOT NULL;"
+            "DELETE FROM objects WHERE hash='" EMPTY_SHA512 "' AND size=0;"
+            "DROP TRIGGER IF EXISTS current_group_update;"
+            "DELETE FROM settings WHERE key='hash_groups_ready';"
+            "PRAGMA user_version=2;COMMIT;"))
+        return -1;
+    if (sql_exec(c, group_schema))
         return -1;
     char *old = setting(c, "source", "");
     c->source = source ? realpath(source, NULL) : xstrdup(old);
@@ -157,6 +180,7 @@ int catalog_open(Catalog *c, const char *source, const char *destination, int br
 }
 void catalog_close(Catalog *c)
 {
+    source_writers_reset(c);
     activity_log(c, LOG_INFO, "session.close", NULL, NULL,
                  "Session closing; completed work remains saved");
     activity_close(c->log);
@@ -253,7 +277,8 @@ static int kernel_fs(int fd)
 }
 static int scan_level(const char *error)
 {
-    return strstr(error, "changed") || strstr(error, "Virtual kernel") || strstr(error, "Cancelled")
+    return strstr(error, "UNSCANNED:") || strstr(error, "changed") ||
+                   strstr(error, "Virtual kernel") || strstr(error, "Cancelled")
                ? LOG_WARNING
                : LOG_ERROR;
 }
@@ -303,10 +328,19 @@ int scan_one(Catalog *c, const char *path, int full, int64_t generation)
         return fail(c, "Scan database: %s", sqlite3_errmsg(c->db));
     }
     if (!ok) {
-        update_error(c, path, strerror(saved_errno));
+        update_error(c, path,
+                     saved_errno == EBUSY || saved_errno == EAGAIN
+                         ? "UNSCANNED: file is busy; retry on the next scan"
+                         : strerror(saved_errno));
         free(leaf);
         if (pfd >= 0)
             close(pfd);
+        return -1;
+    }
+    if (S_ISREG(st.st_mode) && source_writer_busy(c, &st, -1)) {
+        update_error(c, path, "UNSCANNED: file is open for writing; retry on the next scan");
+        free(leaf);
+        close(pfd);
         return -1;
     }
     s = sql_prepare(
@@ -322,18 +356,23 @@ int scan_one(Catalog *c, const char *path, int full, int64_t generation)
         sqlite3_column_int64(s, 6) == mtime_ns(&st) && sqlite3_column_int64(s, 7) == ctime_ns(&st);
     if (S_ISREG(st.st_mode) && (!sqlite3_column_text(s, 8) || !*(char *)sqlite3_column_text(s, 8)))
         same = 0;
-    if (sqlite3_column_text(s, 9) && *(char *)sqlite3_column_text(s, 9))
+    int same_metadata = same;
+    const char *previous_error = (const char *)sqlite3_column_text(s, 9);
+    int retry_unscanned = previous_error && !strncmp(previous_error, "UNSCANNED:", 10);
+    if (previous_error && *previous_error)
         same = 0;
     char old_hash[129] = {0};
     if (sqlite3_column_text(s, 8))
         snprintf(old_hash, sizeof(old_hash), "%s", sqlite3_column_text(s, 8));
     sqlite3_finalize(s);
+#ifndef _WIN32
     if (same && !full) {
         free(leaf);
         close(pfd);
         clear_discovery(c, path);
         return 0;
     }
+#endif
     int fd = -1;
     char hash[129] = {0}, err[1024] = {0}, meta_error[256] = {0};
     char *link = NULL, *attrs = xstrdup("[]");
@@ -355,12 +394,27 @@ int scan_one(Catalog *c, const char *path, int full, int64_t generation)
                         O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC |
                             (S_ISDIR(st.st_mode) ? O_DIRECTORY : 0));
         if (fd < 0)
-            snprintf(err, sizeof(err), "open: %s", strerror(errno));
+            snprintf(err, sizeof(err),
+                     errno == EAGAIN || errno == EBUSY
+                         ? "UNSCANNED: file is busy; retry on the next scan (%s)"
+                         : "open: %s",
+                     strerror(errno));
         else {
             struct stat actual;
             if (fstat(fd, &actual) || !stat_same(&st, &actual))
-                snprintf(err, sizeof(err), "File changed before opening");
-            else {
+                snprintf(err, sizeof(err),
+                         "UNSCANNED: file changed before opening; retry on the next scan");
+            else if (S_ISREG(st.st_mode) && source_writer_busy(c, &st, fd))
+                snprintf(err, sizeof(err),
+                         "UNSCANNED: file is open for writing or locked; retry on the next scan");
+            else if (same && !full) {
+                close(fd);
+                close(pfd);
+                free(leaf);
+                free(attrs);
+                clear_discovery(c, path);
+                return 0;
+            } else {
                 free(attrs);
                 attrs = attributes(fd, meta_error);
 #ifdef _WIN32
@@ -384,10 +438,18 @@ int scan_one(Catalog *c, const char *path, int full, int64_t generation)
     }
     free(leaf);
     close(pfd);
-    if (same && full && !*err && !*meta_error && !strcmp(hash, old_hash)) {
+    if (!strncmp(err, "UNSCANNED:", 10)) {
+        update_error(c, path, err);
+        free(link);
+        free(attrs);
+        return -1;
+    }
+    if ((same || (retry_unscanned && same_metadata)) && !*err && !*meta_error &&
+        !strcmp(hash, old_hash)) {
         free(link);
         free(attrs);
         clear_discovery(c, path);
+        update_error(c, path, "");
         return 0;
     }
     s = sql_prepare(c, "INSERT INTO "
@@ -427,7 +489,7 @@ int scan_one(Catalog *c, const char *path, int full, int64_t generation)
     sqlite3_bind_int64(s, 6, eid);
     sqlite3_step(s);
     sqlite3_finalize(s);
-    if (*hash) {
+    if (*hash && st.st_size > 0) {
         s = sql_prepare(c, "INSERT OR IGNORE INTO objects(hash,size) VALUES(?,?)");
         bind_text(s, 1, hash);
         sqlite3_bind_int64(s, 2, st.st_size);
@@ -483,7 +545,8 @@ static int plan_one(Catalog *c, const char *path, int full, int64_t generation, 
         had_error = error && *error;
     }
     sqlite3_finalize(q);
-    int needs = regular && (full || !same || !has_hash || had_error);
+    int busy = regular && source_writer_busy(c, &st, -1);
+    int needs = regular && (full || !same || !has_hash || had_error || busy);
     /* Publish observed names and basic metadata immediately, without inventing a
      * verified version or changing retained history before content is read. */
     char *par = parent_path(path);
@@ -532,7 +595,10 @@ static int plan_one(Catalog *c, const char *path, int full, int64_t generation, 
         }
         update_error(c, path, "");
     } else if (!ok)
-        update_error(c, path, strerror(saved_errno));
+        update_error(c, path,
+                     saved_errno == EBUSY || saved_errno == EAGAIN
+                         ? "UNSCANNED: file is busy; retry on the next scan"
+                         : strerror(saved_errno));
     if (parent >= 0)
         close(parent);
     free(leaf);
@@ -657,6 +723,7 @@ static int walk(Catalog *c, const char *path, int full, int64_t gen, const Ances
 }
 int scan_source(Catalog *c, int full)
 {
+    source_writers_reset(c);
     if (c->sfd < 0)
         return fail(c, "Source offline");
     activity_log(c, LOG_INFO, "scan.start", c->source, NULL,
@@ -801,9 +868,11 @@ static const char *entry_columns =
     "(v.mode&61440) WHEN 32768 THEN 'file' WHEN 16384 THEN 'directory' WHEN 40960 THEN 'symlink' "
     "WHEN 4096 THEN 'fifo' WHEN 49152 THEN 'socket' WHEN 24576 THEN 'block' WHEN 8192 THEN "
     "'character' ELSE e.kind "
-    "END),v.hash,o.dest,o.state,e.error,e.present,e.reviewed,e.discarded,v.accepted,(SELECT "
-    "occurrences FROM hash_groups WHERE hash=v.hash),(SELECT MIN(x.eid) FROM versions x WHERE "
-    "x.hash=v.hash)";
+    "END),v.hash,COALESCE(z.dest,o.dest),COALESCE(z.state,o.state),e.error,e.present,e.reviewed,e."
+    "discarded,v.accepted,CASE WHEN v.size>0 THEN (SELECT "
+    "occurrences FROM hash_groups WHERE hash=v.hash) ELSE 0 END,CASE WHEN v.size>0 THEN (SELECT "
+    "MIN(x.eid) FROM versions x WHERE "
+    "x.hash=v.hash) END";
 static void row_entry(sqlite3_stmt *s, Entry *e)
 {
     memset(e, 0, sizeof(*e));
@@ -858,6 +927,17 @@ static void observed_entry(Catalog *c, Entry *e)
         e->version = 0;
     }
     sqlite3_finalize(q);
+    if (!strncmp(e->error, "UNSCANNED:", 10) && !e->pending) {
+        free(e->hash);
+        e->hash = xstrdup("");
+        free(e->dest);
+        e->dest = xstrdup("");
+        free(e->state);
+        e->state = xstrdup("pending");
+        e->pending = 1;
+        e->accepted = e->copies = 0;
+        e->version = 0;
+    }
 }
 void entry_free(Entry *e)
 {
@@ -881,7 +961,7 @@ int load_entry(Catalog *c, const char *path, Entry *out, int historical)
 {
     char *sql =
         fmt("SELECT %s FROM entries e LEFT JOIN versions v ON v.id=%s LEFT JOIN objects o ON "
-            "o.hash=v.hash WHERE e.path=?",
+            "o.hash=v.hash AND v.size>0 LEFT JOIN empty_copies z ON z.version=v.id WHERE e.path=?",
             entry_columns,
             historical ? "(SELECT MAX(h.id) FROM versions h WHERE h.eid=e.id AND h.accepted=1)"
                        : "e.current");
@@ -892,22 +972,30 @@ int load_entry(Catalog *c, const char *path, Entry *out, int historical)
     if (rc == SQLITE_ROW)
         row_entry(s, out);
     sqlite3_finalize(s);
-    if (rc == SQLITE_ROW && !historical)
-        observed_entry(c, out);
+    if (rc == SQLITE_ROW) {
+        if (!historical)
+            observed_entry(c, out);
+        else if (!strncmp(out->error, "UNSCANNED:", 10))
+            *out->error = 0;
+    }
     return rc == SQLITE_ROW ? 0 : fail(c, "Path not catalogued: %s", path);
 }
 int load_version(Catalog *c, const char *path, int64_t version, Entry *out)
 {
     char *sql = fmt("SELECT %s FROM entries e JOIN versions v ON v.id=? AND v.eid=e.id LEFT JOIN "
-                    "objects o ON o.hash=v.hash WHERE e.path=?",
+                    "objects o ON o.hash=v.hash AND v.size>0 LEFT JOIN empty_copies z ON "
+                    "z.version=v.id WHERE e.path=?",
                     entry_columns);
     sqlite3_stmt *s = sql_prepare(c, sql);
     free(sql);
     sqlite3_bind_int64(s, 1, version);
     bind_text(s, 2, path);
     int rc = sqlite3_step(s);
-    if (rc == SQLITE_ROW)
+    if (rc == SQLITE_ROW) {
         row_entry(s, out);
+        if (!strncmp(out->error, "UNSCANNED:", 10))
+            *out->error = 0;
+    }
     sqlite3_finalize(s);
     return rc == SQLITE_ROW ? 0 : -1;
 }
@@ -917,7 +1005,8 @@ static char *listing_from(int historical, int unsecured, int fast)
 {
     Buf b = {0};
     badd(&b,
-         "FROM entries e LEFT JOIN versions v ON v.id=%s LEFT JOIN objects o ON o.hash=v.hash "
+         "FROM entries e LEFT JOIN versions v ON v.id=%s LEFT JOIN objects o ON o.hash=v.hash AND "
+         "v.size>0 LEFT JOIN empty_copies z ON z.version=v.id "
          "WHERE e.parent=? AND e.path<>'' AND (?='' OR instr(lower(e.name),lower(?))>0)",
          historical ? "(SELECT MAX(h.id) FROM versions h WHERE h.eid=e.id AND h.accepted=1)"
                     : "e.current");
@@ -926,22 +1015,25 @@ static char *listing_from(int historical, int unsecured, int fast)
                  "JOIN versions h ON h.eid=x.id AND h.accepted=1 WHERE x.path>=e.path||'/' "
                  "AND x.path<e.path||'0')))");
     if (unsecured) {
-        const char *pending =
-            historical ? "0" : "EXISTS (SELECT 1 FROM discoveries d WHERE d.eid=e.id)";
-        const char *child_pending =
-            historical ? "0" : "EXISTS (SELECT 1 FROM discoveries d WHERE d.eid=x.id)";
-        badd(
-            &b,
-            " AND e.discarded=0 AND (%s OR e.kind='directory' OR (COALESCE(o.state,'')<>'verified' "
-            "AND (COALESCE(v.hash,'')<>'' OR COALESCE(v.accepted,0)=0)))",
-            pending);
+        const char *pending = historical ? "0"
+                                         : "(e.error LIKE 'UNSCANNED:%' OR EXISTS (SELECT 1 FROM "
+                                           "discoveries d WHERE d.eid=e.id))";
+        const char *child_pending = historical ? "0"
+                                               : "(x.error LIKE 'UNSCANNED:%' OR EXISTS (SELECT 1 "
+                                                 "FROM discoveries d WHERE d.eid=x.id))";
+        badd(&b,
+             " AND e.discarded=0 AND (%s OR e.kind='directory' OR "
+             "(COALESCE(z.state,o.state,'')<>'verified' "
+             "AND (COALESCE(v.hash,'')<>'' OR COALESCE(v.accepted,0)=0)))",
+             pending);
         if (!fast)
             badd(&b,
                  " AND (%s OR e.kind<>'directory' OR COALESCE(v.accepted,0)=0 OR EXISTS ("
                  "SELECT 1 FROM entries x LEFT JOIN versions h ON h.id=x.current LEFT JOIN "
-                 "objects t ON t.hash=h.hash WHERE x.path>=e.path||'/' AND x.path<e.path||'0' "
+                 "objects t ON t.hash=h.hash AND h.size>0 LEFT JOIN empty_copies y ON "
+                 "y.version=h.id WHERE x.path>=e.path||'/' AND x.path<e.path||'0' "
                  "AND x.discarded=0 AND x.present=1 AND (%s OR NOT "
-                 "((COALESCE(t.state,'')='verified' "
+                 "((COALESCE(y.state,t.state,'')='verified' "
                  "AND h.hash IS NOT NULL) OR (COALESCE(h.accepted,0)=1 AND x.kind<>'file')))))",
                  pending, child_pending);
     }
@@ -971,19 +1063,24 @@ static char *listing_order(int historical, int fast, int sort)
 {
     int column = sort & SORT_COLUMN_MASK;
     const char *direction = sort & SORT_DESC ? "DESC" : "ASC";
-    const char *pending = historical ? "0" : "EXISTS(SELECT 1 FROM discoveries d WHERE d.eid=e.id)";
-    const char *secured = "(o.state='verified' OR (COALESCE(v.hash,'')='' AND v.accepted=1))";
-    const char *copies = "COALESCE((SELECT occurrences FROM hash_groups WHERE hash=v.hash),0)";
+    const char *pending = historical ? "0"
+                                     : "(e.error LIKE 'UNSCANNED:%' OR EXISTS(SELECT 1 FROM "
+                                       "discoveries d WHERE d.eid=e.id))";
+    const char *secured =
+        "(COALESCE(z.state,o.state)='verified' OR (COALESCE(v.hash,'')='' AND v.accepted=1))";
+    const char *copies = "CASE WHEN v.size>0 THEN COALESCE((SELECT occurrences FROM hash_groups "
+                         "WHERE hash=v.hash),0) ELSE 0 END";
     const char *directory =
         historical ? "COALESCE((v.mode & 61440)=16384,e.kind='directory')" : "(e.kind='directory')";
     char *key = NULL;
     if (column == SORT_STATUS) {
         const char *dir_ok =
             "v.accepted=1 AND NOT EXISTS(SELECT 1 FROM entries x "
-            "LEFT JOIN versions h ON h.id=x.current LEFT JOIN objects t ON t.hash=h.hash "
+            "LEFT JOIN versions h ON h.id=x.current LEFT JOIN objects t ON t.hash=h.hash AND "
+            "h.size>0 LEFT JOIN empty_copies y ON y.version=h.id "
             "WHERE x.path>=e.path||'/' AND x.path<e.path||'0' AND x.discarded=0 AND x.present=1 "
-            "AND (EXISTS(SELECT 1 FROM discoveries d WHERE d.eid=x.id) OR NOT "
-            "((COALESCE(t.state,'')='verified' AND h.hash IS NOT NULL) OR "
+            "AND (x.error<>'' OR EXISTS(SELECT 1 FROM discoveries d WHERE d.eid=x.id) OR NOT "
+            "((COALESCE(y.state,t.state,'')='verified' AND h.hash IS NOT NULL) OR "
             "(COALESCE(h.accepted,0)=1 AND x.kind<>'file'))))";
         char *directory_status =
             fast
@@ -991,15 +1088,17 @@ static char *listing_order(int historical, int fast, int sort)
                 : fmt("CASE WHEN e.discarded THEN 'REJ' WHEN COALESCE(e.error,'')<>'' THEN 'ERROR' "
                       "WHEN %s THEN 'OK' ELSE '--' END",
                       dir_ok);
-        key = fmt(
-            "CASE WHEN %s THEN CASE WHEN COALESCE(e.error,'')<>'' THEN 'ERROR' ELSE 'PENDING' END "
-            "WHEN %s THEN %s "
-            "WHEN e.discarded THEN 'REJECTED' WHEN COALESCE(e.error,'')<>'' THEN 'ERROR' "
-            "WHEN o.state='corrupt' THEN 'CHANGED' "
-            "WHEN o.state='missing' AND COALESCE(o.dest,'')<>'' THEN 'MISSING' "
-            "WHEN o.state='unchecked' THEN 'UNCHECKED' WHEN %s THEN 'OK' "
-            "WHEN %s>1 THEN '--' ELSE 'UNCOPIED' END",
-            pending, directory, directory_status, secured, copies);
+        key = fmt("CASE WHEN %s THEN CASE WHEN COALESCE(e.error,'')<>'' THEN CASE WHEN e.error "
+                  "LIKE 'UNSCANNED:%' THEN 'UNSCANNED' ELSE 'ERROR' END ELSE 'PENDING' END "
+                  "WHEN %s THEN %s "
+                  "WHEN e.discarded THEN 'REJECTED' WHEN e.error LIKE 'UNSCANNED:%' THEN "
+                  "'UNSCANNED' WHEN COALESCE(e.error,'')<>'' THEN 'ERROR' "
+                  "WHEN COALESCE(z.state,o.state)='corrupt' THEN 'CHANGED' "
+                  "WHEN COALESCE(z.state,o.state)='missing' AND COALESCE(z.dest,o.dest,'')<>'' "
+                  "THEN 'MISSING' "
+                  "WHEN COALESCE(z.state,o.state)='unchecked' THEN 'UNCHECKED' WHEN %s THEN 'OK' "
+                  "WHEN %s>1 THEN '--' ELSE 'UNCOPIED' END",
+                  pending, directory, directory_status, secured, copies);
         free(directory_status);
     } else if (column == SORT_SIZE || column == SORT_MTIME || column == SORT_BTIME ||
                column == SORT_MODE) {
@@ -1094,14 +1193,18 @@ int list_entries_page(Catalog *c, const char *path, Entry **out, int historical,
         row_entry(s, &e);
         if (!historical)
             observed_entry(c, &e);
+        else if (!strncmp(e.error, "UNSCANNED:", 10))
+            *e.error = 0;
         int dir = !strcmp(e.kind, "directory");
         if (dir && !fast) {
             sqlite3_stmt *d = sql_prepare(
-                c, "SELECT COUNT(*),COALESCE(SUM(CASE WHEN NOT EXISTS(SELECT 1 FROM discoveries d "
-                   "WHERE d.eid=e.id) AND ((o.state='verified' AND v.hash IS NOT "
+                c, "SELECT COUNT(*),COALESCE(SUM(CASE WHEN e.error='' AND NOT EXISTS(SELECT 1 FROM "
+                   "discoveries d "
+                   "WHERE d.eid=e.id) AND ((COALESCE(z.state,o.state)='verified' AND v.hash IS NOT "
                    "NULL) OR (v.accepted=1 AND e.kind<>'file')) THEN 1 ELSE 0 "
                    "END),0),COALESCE(SUM(v.accepted),0) FROM entries e LEFT JOIN versions v ON "
-                   "v.id=e.current LEFT JOIN objects o ON o.hash=v.hash WHERE e.path>=?||'/' AND "
+                   "v.id=e.current LEFT JOIN objects o ON o.hash=v.hash AND v.size>0 LEFT JOIN "
+                   "empty_copies z ON z.version=v.id WHERE e.path>=?||'/' AND "
                    "e.path<?||'0' AND e.discarded=0 AND e.present=1");
             bind_text(d, 1, e.path);
             bind_text(d, 2, e.path);
@@ -1147,6 +1250,11 @@ char *entry_details_page(Catalog *c, const Entry *e, int page)
         badd(&b, "\nDESTINATION COPY [%s]:\n%s\n", *e->state ? e->state : "missing",
              *p ? p : "not copied yet");
         free(p);
+    }
+    if (!strcmp(e->kind, "file") && e->size == 0 && !e->pending)
+        badd(&b, "\nEMPTY FILE: tracked individually with its own metadata and destination.\n"
+                 "Empty files are excluded from content duplicate groups.\n");
+    if (*e->hash && e->size > 0) {
         badd(&b, "\nCONTENT OCCURRENCES (page %d; Ctrl+Alt+PgUp/PgDn):\n", page + 1);
         sqlite3_stmt *s = sql_prepare(
             c, "SELECT e.path,e.present,e.discarded,v.accepted,v.id=e.current FROM versions v JOIN "
@@ -1166,9 +1274,12 @@ char *entry_details_page(Catalog *c, const Entry *e, int page)
     if (!strcmp(e->kind, "directory")) {
         badd(&b, "\nLOCATIONS OF RETAINED FILES IN THIS SUBTREE:\n");
         sqlite3_stmt *locations = sql_prepare(
-            c, "SELECT DISTINCT o.dest,o.state FROM entries x JOIN versions v ON v.eid=x.id "
-               "JOIN objects o ON o.hash=v.hash WHERE v.accepted=1 AND o.dest IS NOT NULL "
-               "AND (?='' OR (x.path>=?||'/' AND x.path<?||'0')) ORDER BY o.dest LIMIT 2001");
+            c, "SELECT DISTINCT COALESCE(z.dest,o.dest),COALESCE(z.state,o.state) FROM entries x "
+               "JOIN versions v ON v.eid=x.id "
+               "LEFT JOIN objects o ON o.hash=v.hash AND v.size>0 LEFT JOIN empty_copies z ON "
+               "z.version=v.id WHERE v.accepted=1 AND COALESCE(z.dest,o.dest) IS NOT NULL "
+               "AND (?='' OR (x.path>=?||'/' AND x.path<?||'0')) ORDER BY COALESCE(z.dest,o.dest) "
+               "LIMIT 2001");
         for (int i = 1; i <= 3; i++)
             bind_text(locations, i, e->path);
         int n = 0;
@@ -1191,7 +1302,7 @@ char *entry_details_page(Catalog *c, const Entry *e, int page)
          mt, bt, (long long)e->uid, (long long)e->gid, e->reviewed ? "yes" : "no",
          e->discarded ? "yes" : "no", e->present ? "yes" : "no");
     if (*e->error)
-        badd(&b, "ERROR: %s\n", e->error);
+        badd(&b, !strncmp(e->error, "UNSCANNED:", 10) ? "%s\n" : "ERROR: %s\n", e->error);
     sqlite3_stmt *s = sql_prepare(c, "SELECT link,meta_error FROM versions WHERE id=?");
     sqlite3_bind_int64(s, 1, e->version);
     if (sqlite3_step(s) == SQLITE_ROW) {
@@ -1205,7 +1316,7 @@ char *entry_details_page(Catalog *c, const Entry *e, int page)
             badd(&b, "\nIncomplete metadata: %s\n", err);
     }
     sqlite3_finalize(s);
-    if (*e->hash) {
+    if (*e->hash && e->size > 0) {
         badd(&b, "\nSHA-512:\n%.64s\n%s\n", e->hash, e->hash + 64);
         s = sql_prepare(c, "SELECT verified FROM objects WHERE hash=?");
         bind_text(s, 1, e->hash);
@@ -1216,8 +1327,10 @@ char *entry_details_page(Catalog *c, const Entry *e, int page)
         sqlite3_finalize(s);
     }
     badd(&b, "\nRETAINED VERSIONS AT THIS PATH (Ctrl+V in history):\n");
-    s = sql_prepare(c, "SELECT v.id,v.mtime,o.dest FROM versions v LEFT JOIN objects o ON "
-                       "o.hash=v.hash WHERE v.eid=? AND v.accepted=1 ORDER BY v.id DESC");
+    s = sql_prepare(
+        c, "SELECT v.id,v.mtime,COALESCE(z.dest,o.dest) FROM versions v LEFT JOIN objects o ON "
+           "o.hash=v.hash AND v.size>0 LEFT JOIN empty_copies z ON z.version=v.id WHERE v.eid=? "
+           "AND v.accepted=1 ORDER BY v.id DESC");
     sqlite3_bind_int64(s, 1, e->id);
     while (sqlite3_step(s) == SQLITE_ROW) {
         date_text(sqlite3_column_int64(s, 1), mt);
@@ -1240,13 +1353,15 @@ void catalog_summary(Catalog *c, Summary *r)
     memset(r, 0, sizeof(*r));
     sqlite3_stmt *s = sql_prepare(
         c,
-        "SELECT COUNT(*),COALESCE(SUM(e.discarded=0 AND NOT EXISTS(SELECT 1 FROM discoveries d "
-        "WHERE d.eid=e.id) AND ((o.state='verified' AND v.hash IS NOT "
+        "SELECT COUNT(*),COALESCE(SUM(e.discarded=0 AND e.error='' AND NOT EXISTS(SELECT 1 FROM "
+        "discoveries d "
+        "WHERE d.eid=e.id) AND ((COALESCE(z.state,o.state)='verified' AND v.hash IS NOT "
         "NULL) OR (v.accepted=1 AND "
         "e.kind<>'file'))),0),COALESCE(SUM(e.discarded),0),COALESCE(SUM(e.reviewed),0),COALESCE("
         "SUM(e.error<>'' OR v.meta_error<>''),0),COALESCE(SUM(e.present=0),0),COALESCE(SUM(e.kind "
         "NOT IN ('file','directory')),0) FROM entries e LEFT JOIN versions v ON v.id=e.current "
-        "LEFT JOIN objects o ON o.hash=v.hash WHERE e.path<>'' AND e.kind<>'directory'");
+        "LEFT JOIN objects o ON o.hash=v.hash AND v.size>0 LEFT JOIN empty_copies z ON "
+        "z.version=v.id WHERE e.path<>'' AND e.kind<>'directory'");
     if (sqlite3_step(s) == SQLITE_ROW) {
         r->paths = sqlite3_column_int64(s, 0);
         r->secured = sqlite3_column_int64(s, 1);
@@ -1343,7 +1458,7 @@ int export_archive(Catalog *c)
         return -1;
     }
     fprintf(f,
-            "{\"type\":\"header\",\"schema\":1,\"hash_algorithm\":\"sha512\",\"generated_ns\":\"%"
+            "{\"type\":\"header\",\"schema\":2,\"hash_algorithm\":\"sha512\",\"generated_ns\":\"%"
             "lld\",\"encoding\":\"path_b64 is authoritative POSIX bytes\",",
             (long long)now_ns());
     output_path(f, "source", c->source);
@@ -1365,8 +1480,10 @@ int export_archive(Catalog *c)
            "WHEN 40960 THEN 'symlink' WHEN 4096 THEN 'fifo' WHEN 49152 THEN 'socket' WHEN 24576 "
            "THEN 'block' WHEN 8192 THEN 'character' ELSE e.kind "
            "END),v.id,v.mode,v.size,v.uid,v.gid,v.mtime,v.ctime,v.atime,v.btime,v.dev,v.ino,v.hash,"
-           "v.link,v.attrs,v.meta_error,v.id=e.current FROM versions v JOIN entries e ON "
-           "e.id=v.eid WHERE v.accepted=1 ORDER BY e.path,v.id");
+           "v.link,v.attrs,v.meta_error,v.id=e.current,z.dest,z.state FROM versions v JOIN entries "
+           "e ON "
+           "e.id=v.eid LEFT JOIN empty_copies z ON z.version=v.id WHERE v.accepted=1 ORDER BY "
+           "e.path,v.id");
     while (sqlite3_step(s) == SQLITE_ROW) {
         fprintf(f, "{\"type\":\"entry\",");
         output_path(f, "path", (char *)sqlite3_column_text(s, 0));
@@ -1385,6 +1502,11 @@ int export_archive(Catalog *c)
         if (sqlite3_column_text(s, 14)) {
             fputc(',', f);
             output_path(f, "link", (char *)sqlite3_column_text(s, 14));
+        }
+        if (sqlite3_column_text(s, 18)) {
+            fputc(',', f);
+            output_path(f, "destination", (char *)sqlite3_column_text(s, 18));
+            fprintf(f, ",\"destination_state\":\"%s\"", sqlite3_column_text(s, 19));
         }
         char *err = json_string((char *)sqlite3_column_text(s, 16));
         fprintf(f, ",\"xattrs\":%s,\"metadata_error\":%s,\"current_at_export\":%s}\n",
@@ -1469,7 +1591,7 @@ int import_archive(Catalog *c, const char *filename)
         }
         if (!strcmp(type, "header")) {
             char *ver = json_value(c, line, "schema");
-            header = ver && atoi(ver) == 1;
+            header = ver && (atoi(ver) == 1 || atoi(ver) == 2);
             free(ver);
             if (!header) {
                 free(type);
@@ -1556,6 +1678,23 @@ int import_archive(Catalog *c, const char *filename)
             free(attrs);
             free(err);
             int64_t vid = sqlite3_last_insert_rowid(c->db);
+            char *destination = json_path(c, line, "destination");
+            if (destination && *destination) {
+                if (strcmp(kind, "file") || !valid_relative(destination, 0) ||
+                    descendant(destination, META_DIR))
+                    rc = fail(c, "Invalid empty-file destination");
+                else {
+                    s = sql_prepare(c, "INSERT INTO empty_copies(version,dest,state) "
+                                       "SELECT id,?,'unchecked' FROM versions WHERE id=? AND "
+                                       "size=0 AND hash='" EMPTY_SHA512 "'");
+                    bind_text(s, 1, destination);
+                    sqlite3_bind_int64(s, 2, vid);
+                    if (sqlite3_step(s) != SQLITE_DONE || sqlite3_changes(c->db) != 1)
+                        rc = fail(c, "Invalid empty-file entry");
+                    sqlite3_finalize(s);
+                }
+            }
+            free(destination);
             s = sql_prepare(c, "UPDATE entries SET current=? WHERE path=?");
             sqlite3_bind_int64(s, 1, vid);
             bind_text(s, 2, path);
@@ -1592,6 +1731,13 @@ int import_archive(Catalog *c, const char *filename)
         rc = fail(c, "Empty manifest");
     free(line);
     fclose(f);
+    if (!rc)
+        rc = sql_exec(
+            c, "INSERT OR IGNORE INTO empty_copies(version,dest,state,verified) "
+               "SELECT v.id,o.dest,'unchecked',0 FROM versions v JOIN objects o ON o.hash=v.hash "
+               "WHERE v.hash='" EMPTY_SHA512
+               "' AND v.size=0 AND (v.mode&61440)=32768 AND v.accepted=1 AND o.dest IS NOT NULL;"
+               "DELETE FROM objects WHERE hash='" EMPTY_SHA512 "' AND size=0;");
     sql_exec(c, rc ? "ROLLBACK" : "COMMIT");
     return rc;
 }

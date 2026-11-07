@@ -38,12 +38,13 @@ void preserve_parents(Catalog *c, const char *path)
 }
 static void accept_hash(Catalog *c, const char *hash)
 {
-    sqlite3_stmt *s = sql_prepare(c, "UPDATE versions SET accepted=1 WHERE hash=? AND eid "
-                                     "IN(SELECT id FROM entries WHERE discarded=0)");
+    sqlite3_stmt *s =
+        sql_prepare(c, "UPDATE versions SET accepted=1 WHERE size>0 AND hash=? AND eid "
+                       "IN(SELECT id FROM entries WHERE discarded=0)");
     bind_text(s, 1, hash);
     done(s);
     s = sql_prepare(c, "SELECT DISTINCT e.path FROM versions v JOIN entries e ON e.id=v.eid WHERE "
-                       "v.hash=? AND v.accepted=1");
+                       "v.size>0 AND v.hash=? AND v.accepted=1");
     bind_text(s, 1, hash);
     while (sqlite3_step(s) == SQLITE_ROW)
         preserve_parents(c, (char *)sqlite3_column_text(s, 0));
@@ -53,15 +54,30 @@ static int finalize_copy(Catalog *c, int64_t op, const char *src, const char *ds
 {
     if (sql_exec(c, "BEGIN IMMEDIATE"))
         return -1;
-    sqlite3_stmt *s =
-        sql_prepare(c, "UPDATE objects SET dest=?,state='verified',verified=?,copied_from=(SELECT "
-                       "id FROM entries WHERE path=?) WHERE hash=?");
+    int empty = !strcmp(hash, EMPTY_SHA512);
+    sqlite3_stmt *s = sql_prepare(
+        c, empty ? "INSERT INTO empty_copies(version,dest,state,verified) "
+                   "SELECT v.id,?,'verified',? FROM entries e JOIN versions v ON v.id=e.current "
+                   "WHERE e.path=? AND v.size=0 AND v.hash=? "
+                   "ON CONFLICT(version) DO UPDATE SET "
+                   "dest=excluded.dest,state='verified',verified=excluded.verified"
+                 : "UPDATE objects SET dest=?,state='verified',verified=?,copied_from=(SELECT "
+                   "id FROM entries WHERE path=?) WHERE hash=?");
     bind_text(s, 1, dst);
     sqlite3_bind_int64(s, 2, now_ns());
     bind_text(s, 3, src);
     bind_text(s, 4, hash);
     int rc = done(s);
-    accept_hash(c, hash);
+    if (sqlite3_changes(c->db) != 1)
+        rc = -1;
+    if (empty) {
+        s = sql_prepare(c, "UPDATE versions SET accepted=1 WHERE id=(SELECT current FROM entries "
+                           "WHERE path=?) AND size=0");
+        bind_text(s, 1, src);
+        rc |= done(s);
+        preserve_parents(c, src);
+    } else
+        accept_hash(c, hash);
     s = sql_prepare(c, "UPDATE operations SET state='done' WHERE id=?");
     sqlite3_bind_int64(s, 1, op);
     rc |= done(s);
@@ -82,6 +98,12 @@ static int move_mapping(Catalog *c, int64_t op, const char *src, const char *dst
     for (int i = 2; i <= 5; i++)
         bind_text(s, i, src);
     int rc = done(s);
+    s = sql_prepare(c, "UPDATE empty_copies SET dest=?||substr(dest,length(?)+1) WHERE "
+                       "dest=? OR substr(dest,1,length(?)+1)=?||'/'");
+    bind_text(s, 1, dst);
+    for (int i = 2; i <= 5; i++)
+        bind_text(s, i, src);
+    rc |= done(s);
     s = sql_prepare(c, "UPDATE operations SET state='done' WHERE id=?");
     sqlite3_bind_int64(s, 1, op);
     rc |= done(s);
@@ -282,20 +304,31 @@ static int copy_regular(Catalog *c, Entry *e, const char *dst)
     if (!same)
         return fail(c, "Source changed; rescan before copying: %s", e->path);
     if (*e->dest && !strcmp(e->state, "verified")) {
-        if (!batch_checked(c, e->hash)) {
+        if (e->size == 0 || !batch_checked(c, e->hash)) {
             progress(c, "Checking existing copy: %s", e->dest);
             if (verify_at(c, e->dest, e->hash)) {
-                sqlite3_stmt *s =
-                    sql_prepare(c, "UPDATE objects SET state='unchecked' WHERE hash=?");
-                bind_text(s, 1, e->hash);
+                sqlite3_stmt *s = sql_prepare(
+                    c, e->size == 0 ? "UPDATE empty_copies SET state='unchecked' WHERE version=?"
+                                    : "UPDATE objects SET state='unchecked' WHERE hash=?");
+                if (e->size == 0)
+                    sqlite3_bind_int64(s, 1, e->version);
+                else
+                    bind_text(s, 1, e->hash);
                 done(s);
                 return fail(
                     c, "Existing destination is missing or changed; audit/reconcile required: %s",
                     e->dest);
             }
-            batch_check(c, e->hash);
+            if (e->size > 0)
+                batch_check(c, e->hash);
         }
-        accept_hash(c, e->hash);
+        if (e->size == 0) {
+            sqlite3_stmt *s = sql_prepare(c, "UPDATE versions SET accepted=1 WHERE id=?");
+            sqlite3_bind_int64(s, 1, e->version);
+            done(s);
+            preserve_parents(c, e->path);
+        } else
+            accept_hash(c, e->hash);
         event_log(c, "reuse", e->path, e->dest, e->hash);
         return 0;
     }
@@ -329,14 +362,28 @@ static int copy_regular(Catalog *c, Entry *e, const char *dst)
     }
     struct stat existing;
     if (!fstatat(dir, leaf, &existing, AT_SYMLINK_NOFOLLOW)) {
-        if (S_ISREG(existing.st_mode) && !verify_at(c, dst, e->hash)) {
+        int reuse = e->size > 0;
+        if (!reuse) {
+            /* A new metadata version may reuse its own empty destination, never
+             * an unrelated empty file or a legacy location shared by other paths. */
+            s = sql_prepare(c,
+                            "SELECT COUNT(*)>0 AND MIN(v.eid)=? AND MAX(v.eid)=? "
+                            "FROM empty_copies z JOIN versions v ON v.id=z.version WHERE z.dest=?");
+            sqlite3_bind_int64(s, 1, e->id);
+            sqlite3_bind_int64(s, 2, e->id);
+            bind_text(s, 3, dst);
+            reuse = sqlite3_step(s) == SQLITE_ROW && sqlite3_column_int(s, 0);
+            sqlite3_finalize(s);
+        }
+        if (reuse && S_ISREG(existing.st_mode) && !verify_at(c, dst, e->hash)) {
             int64_t op = intent(c, "copy", e->path, dst, NULL, e->hash);
             close(src);
             close(dir);
             free(leaf);
             if (op < 0)
                 return -1;
-            batch_check(c, e->hash);
+            if (e->size > 0)
+                batch_check(c, e->hash);
             return finalize_copy(c, op, e->path, dst, e->hash);
         }
         close(src);
@@ -368,12 +415,14 @@ static int copy_regular(Catalog *c, Entry *e, const char *dst)
     EVP_DigestInit_ex(md, EVP_sha512(), NULL);
     uint64_t size = 0;
     progress(c, "Copying: %s", e->path);
-    while (!rc) {
+    while (!rc && size < (uint64_t)e->size) {
         if (atomic_load(&c->cancel)) {
             rc = fail(c, "Copy cancelled");
             break;
         }
-        ssize_t n = read(src, buf, 1024 * 1024);
+        size_t want = (uint64_t)e->size - size > 1024 * 1024 ? 1024 * 1024
+                                                             : (size_t)((uint64_t)e->size - size);
+        ssize_t n = read(src, buf, want);
         if (n < 0 && errno == EINTR)
             continue;
         if (n < 0) {
@@ -390,6 +439,9 @@ static int copy_regular(Catalog *c, Entry *e, const char *dst)
             rc = fail(c, "Destination write: %s", strerror(errno));
         size += n;
         atomic_fetch_add(&c->bytes, n);
+        struct stat during;
+        if (fstat(src, &during) || !stat_same(&st, &during))
+            rc = fail(c, "Source changed while copying; unfinished copy removed");
     }
     struct stat after;
     char hash[129];
@@ -430,7 +482,8 @@ static int copy_regular(Catalog *c, Entry *e, const char *dst)
         rc = fail(c, "Directory sync failed; restart will reconcile");
     if (!rc) {
         rc = finalize_copy(c, op, e->path, dst, e->hash);
-        batch_check(c, e->hash);
+        if (e->size > 0)
+            batch_check(c, e->hash);
         atomic_fetch_add(&c->files, 1);
     }
     if (rc && !published) {
@@ -585,12 +638,17 @@ int move_target(Catalog *c, const char *from, const char *to)
 }
 int audit_target(Catalog *c)
 {
-    sqlite3_stmt *s = sql_prepare(c, "SELECT hash,dest FROM objects WHERE dest IS NOT NULL");
+    sqlite3_stmt *s =
+        sql_prepare(c, "SELECT hash,dest,0 FROM objects WHERE dest IS NOT NULL "
+                       "UNION ALL SELECT '" EMPTY_SHA512 "',dest,version FROM empty_copies");
     char **hashes = NULL, **paths = NULL;
+    int64_t *versions = NULL;
     int n = 0;
     while (sqlite3_step(s) == SQLITE_ROW) {
         hashes = realloc(hashes, (n + 1) * sizeof(*hashes));
         paths = realloc(paths, (n + 1) * sizeof(*paths));
+        versions = realloc(versions, (n + 1) * sizeof(*versions));
+        versions[n] = sqlite3_column_int64(s, 2);
         hashes[n] = xstrdup((char *)sqlite3_column_text(s, 0));
         paths[n++] = xstrdup((char *)sqlite3_column_text(s, 1));
     }
@@ -608,14 +666,25 @@ int audit_target(Catalog *c)
         const char *state = ok ? "verified" : fd < 0 ? "missing" : "corrupt";
         if (fd >= 0)
             close(fd);
-        s = sql_prepare(c, "UPDATE objects SET state=?,verified=? WHERE hash=?");
+        s = sql_prepare(c, versions[i]
+                               ? "UPDATE empty_copies SET state=?,verified=? WHERE version=?"
+                               : "UPDATE objects SET state=?,verified=? WHERE hash=?");
         bind_text(s, 1, state);
         sqlite3_bind_int64(s, 2, ok ? now_ns() : 0);
-        bind_text(s, 3, hashes[i]);
+        if (versions[i])
+            sqlite3_bind_int64(s, 3, versions[i]);
+        else
+            bind_text(s, 3, hashes[i]);
         done(s);
-        if (ok)
-            accept_hash(c, hashes[i]);
-        else {
+        if (ok) {
+            if (versions[i]) {
+                s = sql_prepare(c, "UPDATE versions SET accepted=1 WHERE id=? AND eid IN(SELECT id "
+                                   "FROM entries WHERE discarded=0)");
+                sqlite3_bind_int64(s, 1, versions[i]);
+                done(s);
+            } else
+                accept_hash(c, hashes[i]);
+        } else {
             rc = 1;
             activity_log(c, LOG_ERROR, "audit.content", paths[i], NULL, "Destination content is %s",
                          state);
@@ -628,6 +697,7 @@ int audit_target(Catalog *c)
     }
     free(hashes);
     free(paths);
+    free(versions);
     event_log(c, "audit", NULL, NULL, NULL);
     if (export_archive(c))
         return -1;
@@ -649,6 +719,11 @@ static int reconcile_walk(Catalog *c, const char *path, int depth)
         return 0;
     }
     if (S_ISREG(st.st_mode)) {
+        if (st.st_size == 0) {
+            /* An arbitrary empty file cannot identify a missing historical one. */
+            close(fd);
+            return 0;
+        }
         char hash[129];
         progress(c, "Finding relocated content: %s", path);
         if (!hash_fd(c, fd, hash, NULL)) {

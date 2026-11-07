@@ -13,11 +13,12 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from scan_regressions import ScanRegressions
 
 APP = str(Path(sys.argv.pop(1)).resolve())
 
 
-class WindowsCuration(unittest.TestCase):
+class WindowsCuration(ScanRegressions, unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(prefix='ccurate-windows-')
         self.root = Path(self.temp.name)

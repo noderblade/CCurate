@@ -341,6 +341,7 @@ int write_all(int fd, const void *v, size_t n)
 }
 int hash_fd(Catalog *c, int fd, char hash[129], struct stat *stable)
 {
+    hash[0] = 0;
     struct stat a, b;
     if (fstat(fd, &a) || !S_ISREG(a.st_mode))
         return fail(c, "Not a regular file");
@@ -351,16 +352,25 @@ int hash_fd(Catalog *c, int fd, char hash[129], struct stat *stable)
     unsigned char *buf = xmalloc(1024 * 1024), digest[64];
     uint64_t total = 0;
     int rc = 0;
-    for (;;) {
+    /* Never chase an EOF that moves as another process appends data. Check the
+     * original snapshot after every chunk, including truncation and rewrites. */
+    while (total < (uint64_t)a.st_size) {
         if (c && atomic_load(&c->cancel)) {
             rc = fail(c, "Cancelled");
             break;
         }
-        ssize_t n = read(fd, buf, 1024 * 1024);
+        size_t want = (uint64_t)a.st_size - total > 1024 * 1024
+                          ? 1024 * 1024
+                          : (size_t)((uint64_t)a.st_size - total);
+        ssize_t n = read(fd, buf, want);
         if (n < 0 && errno == EINTR)
             continue;
         if (n < 0) {
-            rc = fail(c, "read: %s", strerror(errno));
+            rc = fail(c,
+                      errno == EBUSY || errno == EAGAIN
+                          ? "UNSCANNED: file is busy; retry on the next scan (%s)"
+                          : "read: %s",
+                      strerror(errno));
             break;
         }
         if (!n)
@@ -371,13 +381,17 @@ int hash_fd(Catalog *c, int fd, char hash[129], struct stat *stable)
             atomic_fetch_add(&c->bytes, n);
         if (c && atomic_load(&c->scan.phase) == SCAN_HASH)
             atomic_fetch_add(&c->scan.current_bytes, n);
+        if (fstat(fd, &b) || !stat_same(&a, &b)) {
+            rc = fail(c, "UNSCANNED: file changed while reading; retry on the next scan");
+            break;
+        }
     }
     unsigned dl = 0;
     EVP_DigestFinal_ex(m, digest, &dl);
     EVP_MD_CTX_free(m);
     free(buf);
     if (!rc && (fstat(fd, &b) || !stat_same(&a, &b) || total != (uint64_t)a.st_size))
-        rc = fail(c, "File changed while reading");
+        rc = fail(c, "UNSCANNED: file changed while reading; retry on the next scan");
     if (!rc) {
         for (int i = 0; i < 64; i++)
             sprintf(hash + 2 * i, "%02x", digest[i]);
@@ -426,8 +440,10 @@ int fail(Catalog *c, const char *s, ...)
         va_start(a, s);
         vsnprintf(c->error, sizeof(c->error), s, a);
         va_end(a);
-        activity_log(c, strstr(c->error, "ancel") ? LOG_WARNING : LOG_ERROR, "application.error",
-                     NULL, NULL, "%s", c->error);
+        activity_log(c,
+                     strstr(c->error, "ancel") || !strncmp(c->error, "UNSCANNED:", 10) ? LOG_WARNING
+                                                                                       : LOG_ERROR,
+                     "application.error", NULL, NULL, "%s", c->error);
     }
     return -1;
 }

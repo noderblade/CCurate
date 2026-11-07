@@ -29,6 +29,8 @@ static const GuiTheme themes[] = {
 static const char *legend_text =
     "FILE STATUS LEGEND\n\n"
     "PENDING     Name and metadata found; scan verification is still pending.\n"
+    "UNSCANNED   Open for writing, locked or changing; retried on the next scan.\n"
+    "            Empty files are tracked individually, never as duplicates.\n"
     "UNCOPIED    No verified destination copy has been secured yet.\n"
     "OK          File content has a SHA-512-verified destination copy.\n"
     "            For a non-file object, its metadata has been retained.\n"

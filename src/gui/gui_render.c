@@ -145,6 +145,8 @@ static void gui_pane_paint(Gui *ui, RPainter *p, int side, float x, float y, flo
         unsigned color = gui_theme_current(ui)->text;
         if (e->discarded)
             color = gui_theme_current(ui)->dim;
+        else if (!strncmp(e->error, "UNSCANNED:", 10))
+            color = gui_theme_current(ui)->warning;
         else if (*e->error || !strcmp(e->state, "corrupt") ||
                  (!strcmp(e->state, "missing") && *e->dest))
             color = gui_theme_current(ui)->error;
@@ -167,7 +169,9 @@ static void gui_pane_paint(Gui *ui, RPainter *p, int side, float x, float y, flo
                       ui->font_size);
         free(nm);
         char state[96];
-        if (side && e->pending)
+        if (side && !strncmp(e->error, "UNSCANNED:", 10))
+            snprintf(state, sizeof(state), "UNSCANNED");
+        else if (side && e->pending)
             snprintf(state, sizeof(state), *e->error ? "ERROR" : "PENDING");
         else if (dir && side && e->children < 0)
             snprintf(state, sizeof(state), "scanning...");

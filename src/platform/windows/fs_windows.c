@@ -62,9 +62,11 @@ int cc_win_errno(DWORD error)
         errno = EEXIST;
         break;
     case ERROR_ACCESS_DENIED:
+        errno = EACCES;
+        break;
     case ERROR_SHARING_VIOLATION:
     case ERROR_LOCK_VIOLATION:
-        errno = EACCES;
+        errno = EBUSY;
         break;
     case ERROR_DIRECTORY:
         errno = ENOTDIR;

@@ -10,11 +10,12 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from scan_regressions import ScanRegressions
 
 APP = str(Path(sys.argv.pop(1)).resolve())
 
 
-class Curation(unittest.TestCase):
+class Curation(ScanRegressions, unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(prefix="ccurate-test-")
         self.root = Path(self.temp.name)

@@ -199,9 +199,10 @@ int main(int argc, char **argv)
         for (int i = 0; i < n; i++) {
             char *p = display_path(e[i].path);
             printf("%s\t%lld\t%s\t%s\t%s\n", e[i].kind, (long long)e[i].size,
-                   e[i].discarded ? "rejected"
-                   : *e[i].state  ? e[i].state
-                                  : "pending",
+                   !strncmp(e[i].error, "UNSCANNED:", 10) ? "UNSCANNED"
+                   : e[i].discarded                       ? "rejected"
+                   : *e[i].state                          ? e[i].state
+                                                          : "pending",
                    p, e[i].dest);
             free(p);
         }
