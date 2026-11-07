@@ -1,4 +1,5 @@
 #include "gui.h"
+#include "gui_graphics.h"
 #include <Raven.h>
 #include <errno.h>
 #include <stdlib.h>
@@ -157,7 +158,7 @@ int gui_choose_roots(char **source, char **destination, int historical, const ch
 #ifdef _WIN32
     cc_win_startup_note("Initializing the folder chooser (Vulkan / display).");
 #endif
-    if (!Rinit_ex(&init)) {
+    if (!gui_graphics_init(&init)) {
         fputs("CCurate could not initialize the folder chooser (Vulkan / display).\n", stderr);
         return -1;
     }
@@ -166,7 +167,7 @@ int gui_choose_roots(char **source, char **destination, int historical, const ch
     Rtheme_set_accent(.45f, .62f, .81f);
     s.window = Rwindow_create("CCurate - choose folders", 1000, 640, R_WINDOW_DEFAULT);
     if (s.window == R_INVALID_ID) {
-        Rshutdown();
+        gui_graphics_shutdown();
         return -1;
     }
 #ifdef _WIN32
@@ -237,6 +238,6 @@ int gui_choose_roots(char **source, char **destination, int historical, const ch
         cc_win_startup_ready();
 #endif
     }
-    Rshutdown();
+    gui_graphics_shutdown();
     return s.accepted;
 }

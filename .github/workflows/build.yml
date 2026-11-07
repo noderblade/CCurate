@@ -87,17 +87,17 @@ jobs:
       - name: Native Windows core regression suite
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         run: ctest --test-dir build-windows-core --output-on-failure
-      - name: Select software Vulkan for desktop tests
+      - name: Stage packaged software Vulkan for desktop tests
         id: vulkan
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         run: |
-          driver="$(cygpath -m "$RUNNER_TEMP/ccurate-vulkan")"
-          python scripts/windows_ci_vulkan.py "$driver"
-          echo "CCURATE_VULKAN_DRIVER=$driver" >> "$GITHUB_ENV"
-          echo "VK_ICD_FILENAMES=$driver/lvp_icd.json" >> "$GITHUB_ENV"
+          python scripts/windows_software_vulkan.py build-windows/software-vulkan
       - name: Native Windows GUI regression
         if: ${{ !cancelled() && steps.vulkan.outcome == 'success' }}
         run: python tests/windows_gui.py build-windows/ccurate.exe test-results/windows-gui
+      - name: Automatic and forced CPU rendering without an installed ICD
+        if: ${{ !cancelled() && steps.vulkan.outcome == 'success' }}
+        run: python tests/windows_software_rendering.py build-windows/ccurate.exe test-results/windows-software build-windows/graphicscheck.exe
       - name: Package native runtime
         id: package
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
@@ -124,10 +124,9 @@ jobs:
           } finally {
             Remove-Item dist/CCurate-windows-x64/previewcheck.exe
           }
-          # Only the isolated software graphics driver is added for GUI checks.
-          # The application's development prefix remains absent from PATH.
-          $env:PATH += ";$env:CCURATE_VULKAN_DRIVER"
           & $python tests/windows_gui.py dist/CCurate-windows-x64/ccurate.exe test-results/windows-packaged-gui
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & $python tests/windows_software_rendering.py dist/CCurate-windows-x64/ccurate.exe test-results/windows-packaged-software
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - uses: actions/upload-artifact@v4
         with:

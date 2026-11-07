@@ -17,8 +17,11 @@ native Windows x64 port is available.
 | **Windows 10/11 x64** | **[Download the latest Windows build (.zip)](https://github.com/noderblade/CCurate/releases/download/windows-latest/CCurate-windows-x64.zip)** |
 | **Linux (primary)** | **[Build from source on your system](#build-and-run)** |
 
-For Windows, extract the complete ZIP and run `ccurate.exe`; a Vulkan graphics
-driver is required. The download link updates automatically after the Linux and
+For Windows, extract the complete ZIP and run `ccurate.exe`. The GUI tries system
+Vulkan first and falls back to the bundled Mesa Lavapipe CPU renderer when it
+cannot initialize a usable graphics device. `CCurate-Software.cmd` forces CPU
+rendering, including in virtual machines without Vulkan acceleration.
+The download link updates automatically after the Linux and
 Windows checks pass. The Windows port is experimental; see the
 [Windows guide](docs/WINDOWS_PORT.md) for requirements and limitations.
 

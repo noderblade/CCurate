@@ -43,6 +43,8 @@ if(CCURATE_MEDIA)
  target_link_libraries(ccurate PRIVATE PkgConfig::PREVIEW PkgConfig::JPEG)
 endif()
 if(CCURATE_GUI)
+ find_path(CCURATE_VULKAN_HEADERS vulkan/vulkan.h HINTS "$ENV{VULKAN_SDK}/Include" REQUIRED)
+ target_include_directories(ccurate PRIVATE ${CCURATE_VULKAN_HEADERS})
  set(RAVEN_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
  set(RAVEN_BUILD_TESTS OFF CACHE BOOL "" FORCE)
  set(RAVEN_BUILD_TOOLS OFF CACHE BOOL "" FORCE)
@@ -53,6 +55,7 @@ if(CCURATE_GUI)
  target_sources(ccurate PRIVATE
    src/platform/windows/desktop_windows.c src/platform/windows/fonts_windows.c
    src/platform/windows/dialog_windows.c
+   src/platform/windows/graphics_windows.c
    src/font_catalog.c
    src/gui/gui.c src/gui/gui_startup.c src/gui/gui_controller.c src/gui/gui_browser.c
    src/gui/gui_navigation.c src/gui/gui_open.c src/gui/gui_jobs.c src/gui/gui_layout.c
@@ -61,6 +64,11 @@ if(CCURATE_GUI)
  )
  target_compile_definitions(ccurate PRIVATE CCURATE_GUI=1)
  target_link_libraries(ccurate PRIVATE raven::raven PkgConfig::FONTCONFIG)
+ add_executable(graphicscheck tests/windows_graphics_driver.c src/platform/windows/graphics_windows.c)
+ target_include_directories(graphicscheck PRIVATE include ${CCURATE_VULKAN_HEADERS})
+ target_compile_definitions(graphicscheck PRIVATE _WIN32_WINNT=0x0a00 WINVER=0x0a00)
+ target_compile_options(graphicscheck PRIVATE -Wall -Wextra -Wformat=2)
+ target_link_libraries(graphicscheck PRIVATE raven::raven)
 endif()
 add_executable(diagnosticscheck tests/windows_diagnostics_driver.c src/platform/windows/diagnostics_windows.c)
 target_include_directories(diagnosticscheck PRIVATE include)

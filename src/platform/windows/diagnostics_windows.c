@@ -246,9 +246,11 @@ void cc_win_diagnostics_start(int debug, int graphical)
         _wputenv_s(L"VK_LOADER_DEBUG", L"error,warn,driver");
     if (debug)
         _wputenv_s(L"CCURATE_WINDOWS_DIAGNOSTICS", L"1");
-    const wchar_t *variables[] = {L"VK_LOADER_DEBUG", L"VK_DRIVER_FILES", L"VK_ICD_FILENAMES"};
-    const char *names[] = {"VK_LOADER_DEBUG", "VK_DRIVER_FILES", "VK_ICD_FILENAMES"};
-    for (int i = 0; i < 3; i++) {
+    const wchar_t *variables[] = {L"VK_LOADER_DEBUG", L"VK_DRIVER_FILES", L"VK_ICD_FILENAMES",
+                                  L"CCURATE_RENDERER"};
+    const char *names[] = {"VK_LOADER_DEBUG", "VK_DRIVER_FILES", "VK_ICD_FILENAMES",
+                           "CCURATE_RENDERER"};
+    for (int i = 0; i < 4; i++) {
         DWORD n = GetEnvironmentVariableW(variables[i], folder, 32768);
         describe_wide(names[i], n && n < 32768 ? folder : L"(not set)");
     }

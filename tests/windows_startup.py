@@ -71,7 +71,7 @@ class Startup(unittest.TestCase):
     def test_missing_vulkan_driver_reports_before_first_window(self):
         bad = str(self.root / 'no-vulkan-driver.json')
         env = dict(self.env, VK_DRIVER_FILES=bad, VK_ICD_FILENAMES=bad,
-                   VK_LOADER_DEBUG='error,warn,driver')
+                   VK_LOADER_DEBUG='error,warn,driver', CCURATE_RENDERER='vulkan')
         result = self.run_app(env=env)
         self.assertNotEqual(result.returncode, 0, result.stdout)
         self.assertIn(b'Vulkan', result.stderr)

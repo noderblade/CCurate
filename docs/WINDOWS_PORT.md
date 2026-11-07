@@ -10,7 +10,8 @@ JSONL history. It does not require an MSYS2 shell at runtime.
 **[Download the latest Windows x64 build (.zip)](https://github.com/noderblade/CCurate/releases/download/windows-latest/CCurate-windows-x64.zip).**
 
 Extract the complete ZIP into a writable directory.
-Keep `ccurate.exe`, its DLLs and the `etc`, `lib` and `share` directories together.
+Keep `ccurate.exe`, its DLLs and the `etc`, `lib`, `share` and `software-vulkan`
+directories together.
 Double-click `ccurate.exe`, then browse for the source and destination folders.
 The Windows folder dialog includes drives, network locations and hidden folders.
 
@@ -26,11 +27,38 @@ identifies the source commit and test run. A
 is provided alongside the ZIP. Downloading the public release does not require
 a GitHub account. Actions artifacts remain available for individual test runs.
 
-The GUI requires Windows 10/11 x64 and a working Vulkan graphics driver. CI uses
-Windows Server 2022 with software Vulkan; this does not certify every graphics
+The GUI requires Windows 10/11 x64. It prefers system Vulkan and automatically
+uses the packaged Mesa Lavapipe CPU renderer when Vulkan initialization or Win32
+presentation support fails. A hardware Vulkan driver is not required for CPU
+rendering. CI uses Windows Server 2022 with software Vulkan; this does not certify every graphics
 card, network share or removable drive. The package is unsigned and is not an
 installer. The application does not install drivers, partition disks or import
 ZFS pools. The operating system must already expose the source and destination.
+
+### Software rendering and virtual machines
+
+Launch `ccurate.exe` normally to use automatic selection. A VM's virtual display
+adapter may have no Vulkan window-surface support even though `vulkan-1.dll` is
+present. In that case CCurate retries with the bundled CPU driver. The startup log
+records the failed system attempt, the selected CPU device and whether the first
+GUI frame completed. The folder chooser and curation workspace both support it.
+
+To force CPU rendering, double-click **CCurate-Software.cmd**. For command-line
+control, set `CCURATE_RENDERER` to `auto` (default), `software` or `vulkan`.
+`vulkan` requires the system driver and disables fallback for diagnostics.
+CLI commands and preview workers do not initialize the GUI renderer.
+
+The Windows-only graphics module loads the packaged driver with
+[`VK_LUNARG_direct_driver_loading`](https://docs.vulkan.org/refpages/latest/refpages/source/VK_LUNARG_direct_driver_loading.html)
+and passes its device to Raven through `Rvulkan_set_external_device`. It works
+with ordinary and elevated application processes, without installing an ICD,
+changing the registry, or relying on `VK_DRIVER_FILES` overrides. Raven's vendored
+code remains unmodified. Linux retains its existing renderer initialization.
+
+CPU rendering can use more CPU time and memory and can be slower at large window
+sizes or high UI scales. The additional Mesa/LLVM DLLs also increase the Windows
+download size. If the software driver is missing, extract the complete package
+again; copying just `ccurate.exe` is insufficient.
 
 PowerShell examples:
 
@@ -122,9 +150,10 @@ The packager walks PE import tables recursively, includes dynamically loaded
 image loaders and their resources, rejects an MSYS runtime dependency, and emits
 a SHA-256 `FILES.json` manifest and third-party license files. A complete package
 must also pass integration and GUI checks with MSYS2 removed from `PATH`.
-CI stages and registers Mesa's software Vulkan driver on its disposable runner;
-it is not bundled with the application or used to satisfy application DLL
-dependencies.
+The packager includes Lavapipe and its recursively discovered native dependencies
+under `software-vulkan`, plus their licenses. CI uses this same application-local
+driver without registering it. Packaged GUI tests run with only Windows system
+directories on `PATH`.
 
 ## Startup diagnostics
 
@@ -178,9 +207,11 @@ and `0xC000001D` (illegal instruction, potentially missing VM CPU features).
 A GUI startup failure without a console also displays a message with the log path.
 Unhandled Windows exceptions are recorded when the exception handler can run.
 
-A VM's display adapter may not provide the Vulkan support required by Raven.
-The loader/backend messages establish whether that is the cause; the presence of
-`vulkan-1.dll` alone does not prove a usable Vulkan graphics device is available.
+A VM's display adapter may not provide Vulkan window-surface support. Look for
+`Software rendering active (CPU / Mesa Lavapipe)` after the system-driver failure.
+If automatic selection still fails, try `CCurate-Software.cmd` and include the
+`[graphics]` messages in the report. The presence of `vulkan-1.dll` alone does not
+prove a usable Vulkan graphics device is available.
 Send the latest startup and launcher logs when reporting a silent exit.
 
 ## Source separation
@@ -193,6 +224,7 @@ implementations remain in place. Vendored Raven is unchanged.
 | Windows file | Responsibility |
 | --- | --- |
 | `diagnostics_windows.c` / `diagnostics_windows.h` | Early console attachment, stderr/file capture, startup stages and exception diagnostics |
+| `graphics_windows.c` / `graphics_windows.h` | System Vulkan selection, packaged CPU fallback and external-device lifetime |
 | `fs_windows.c` / `fs_windows.h` | Descriptor adapter, paths, handle-relative I/O, enumeration, locking, durability and space queries |
 | `metadata_windows.c` | Attributes, SDDL, stream detection and reparse metadata |
 | `process_windows.c` / `process_windows.h` | Restricted process creation, pipes, handle inheritance and Job Objects |

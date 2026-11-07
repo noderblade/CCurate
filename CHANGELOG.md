@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- Bundle Mesa Lavapipe for automatic CPU rendering on Windows when system Vulkan
+  cannot initialize or present to a window. Add `CCurate-Software.cmd` and the
+  `CCURATE_RENDERER=auto|software|vulkan` override.
+- Keep software-driver loading and external-device ownership in separate Windows
+  files, using Raven's public API without modifying its vendored code. No system
+  ICD registration or administrator-only installation is required.
+- Test automatic/forced software rendering, missing-driver diagnostics and
+  repeated GUI initialization on native Windows and in the portable package.
+
 - Release unfinished SQLite transactions after failed commits and cancelled view
   queries. Stop failed scan batches cleanly and allow retry in the same session.
 - Start live GUI scans before initial view requests so occurrence-cache rebuilding
