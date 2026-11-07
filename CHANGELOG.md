@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- Exclude zero-byte files from duplicate groups and retain their metadata and
+  destinations independently, including audit, moves, recovery and JSONL export.
+- Upgrade CCurate sessions and portable exports to schema 2 while preserving
+  existing empty-file history and accepting schema-1 imports.
+- Defer detected writable/locked/changing source files as UNSCANNED, continue
+  scanning other entries and retry on the next scan without losing retained history.
+- Bound hash/copy reads to the initial size and detect changes after each chunk.
+  Isolate Linux process-descriptor checks and Windows sharing probes by platform.
+
 - Browse for source and destination folders when GUI arguments are omitted,
   with mouse and keyboard controls, hidden directories and validation before
   session creation. A single source argument prefills the source; bare `--browse`

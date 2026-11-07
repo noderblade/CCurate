@@ -63,15 +63,17 @@ static int last_page(int64_t total)
 }
 static char *target_order(int sort)
 {
-    const char *keys[] = {"t.name COLLATE BINARY",
-                          "CASE WHEN o.state='corrupt' THEN 'CHANGED' WHEN o.state='missing' THEN "
-                          "'MISSING' WHEN o.state='unchecked' THEN 'UNCHECKED' WHEN "
-                          "o.state='verified' THEN 'OK' WHEN t.name='" META_DIR
-                          "' THEN 'SESSION' ELSE '' END",
-                          "t.size",
-                          "t.mtime",
-                          "t.btime",
-                          "(t.mode & 4095)"};
+    const char *keys[] = {
+        "t.name COLLATE BINARY",
+        "CASE WHEN COALESCE(z.state,o.state)='corrupt' THEN 'CHANGED' WHEN "
+        "COALESCE(z.state,o.state)='missing' THEN "
+        "'MISSING' WHEN COALESCE(z.state,o.state)='unchecked' THEN 'UNCHECKED' WHEN "
+        "COALESCE(z.state,o.state)='verified' THEN 'OK' WHEN t.name='" META_DIR
+        "' THEN 'SESSION' ELSE '' END",
+        "t.size",
+        "t.mtime",
+        "t.btime",
+        "(t.mode & 4095)"};
     int column = sort & SORT_COLUMN_MASK;
     if (column < 0 || column >= SORT_COUNT)
         column = SORT_NAME;
@@ -143,8 +145,10 @@ static void target_rows(ViewService *s, ViewRequest *r, ViewResult *out)
     int page = r->page[0], last = last_page(out->total[0]);
     char *prefix = *r->path[0] ? fmt("%s/", r->path[0]) : xstrdup("");
     char *order = target_order(r->sort[0]);
-    const char *from = "FROM target_listing t LEFT JOIN objects o ON o.dest=(?||t.name) WHERE "
-                       "(?='' OR instr(lower(t.name),lower(?))>0)";
+    const char *from =
+        "FROM target_listing t LEFT JOIN objects o ON o.dest=(?||t.name) LEFT JOIN empty_copies z "
+        "ON z.version=(SELECT MAX(version) FROM empty_copies WHERE dest=(?1||t.name)) WHERE "
+        "(?='' OR instr(lower(t.name),lower(?))>0)";
     if (r->anchor[0] && *r->anchor[0]) {
         char *parent = parent_path(r->anchor[0]);
         if (!strcmp(parent, r->path[0])) {
@@ -166,9 +170,11 @@ static void target_rows(ViewService *s, ViewRequest *r, ViewResult *out)
     if (page < 0 || page > last)
         page = last;
     out->page[0] = page;
-    char *sql = fmt("SELECT t.name,t.kind,t.size,t.mtime,t.btime,t.mode,t.uid,t.gid,o.state,o.hash "
-                    "%s ORDER BY %s LIMIT ? OFFSET ?",
-                    from, order);
+    char *sql = fmt(
+        "SELECT "
+        "t.name,t.kind,t.size,t.mtime,t.btime,t.mode,t.uid,t.gid,COALESCE(z.state,o.state),o.hash "
+        "%s ORDER BY %s LIMIT ? OFFSET ?",
+        from, order);
     q = sql_prepare(c, sql);
     free(sql);
     free(order);

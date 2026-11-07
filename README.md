@@ -82,8 +82,13 @@ contains retained entries; it does not turn all unreviewed clutter into history.
    verified copy is reused. Successful retention records the eligible duplicate
    paths and makes their secured status visible.
 
+   Empty (0-byte) files are tracked individually: each keeps its own metadata and
+   destination, without duplicate markers or automatic retention of other empty files.
+
 5. **Resume and refine.** Close the application and reopen the same source and
-   destination to continue. Scanning refreshes changed paths; earlier retained
+   destination to continue. Files detected as open for writing, locked or changing
+   during a read are marked **UNSCANNED**, skipped and retried on the next scan.
+   Scanning refreshes changed paths; earlier retained
    versions remain available. Use **F6** to move or rename destination entries
    while keeping historical mappings current. Filter to unsecured items to
    concentrate on what remains.

@@ -1,4 +1,4 @@
-# CCurate portable archive format — schema 1
+# CCurate portable archive format — schema 2
 
 The file `.ccurate/archive.jsonl` is UTF-8 JSON Lines. Each line is one
 complete JSON object. This is a full export, not a journal to replay. Publishing
@@ -12,14 +12,20 @@ authoritative transactional session while a batch is in progress.
 | `type` | Purpose | Principal fields |
 |---|---|---|
 | `header` | Format and original root hint | `schema`, `hash_algorithm`, `generated_ns`, `source`, `source_b64` |
-| `object` | One physical copy per content hash | `sha512`, `size`, `destination`, `destination_b64`, `state`, `verified_ns` |
-| `entry` | Retained occurrence/version at an original path | `path`, `path_b64`, `kind`, `version`, `sha512` when regular, original metadata |
+| `object` | One physical copy per nonempty content hash | `sha512`, `size`, `destination`, `destination_b64`, `state`, `verified_ns` |
+| `entry` | Retained occurrence/version at an original path | `path`, `path_b64`, `kind`, `version`, `sha512` when regular, original metadata, per-entry `destination` for empty files |
 | `event` | Placement history | `id`, `time_ns`, `operation`, `from`, `from_b64`, `to`, `to_b64`, optional `sha512` |
 
-An `entry` hash resolves through an `object` to a path relative to the archive
+A nonempty regular-file `entry` hash resolves through an `object` to a path relative to the archive
 root. Several entries may resolve to one object. Paths are relative, without
 leading `/`, `..`, or embedded NUL. The empty entry path represents the original
 root. The header's `source` is an absolute historical hint, not a required mount.
+
+Empty regular-file entries (`kind="file"`, `size=0`) have their own `destination`,
+`destination_b64` and `destination_state`. Their SHA-512 remains the true empty
+content digest for integrity verification, but it is never a grouping key and
+has no `object` record. A retained empty entry resolves directly to its per-entry
+destination. Several metadata versions of the same path can share that location.
 
 The corresponding `_b64` field is authoritative for every path or symlink text.
 It preserves arbitrary POSIX filename bytes, including non-UTF-8 names. The
@@ -74,8 +80,8 @@ review markers, pending operations or UI state; those belong to `catalog.sqlite`
 
 ## Session persistence
 
-`PRAGMA user_version=1`. The catalog stores `settings`, `entries`, `versions`,
-`rejected_retention`, `objects`, `operations`, `events`, `hash_groups`,
+`PRAGMA user_version=2`. The catalog stores `settings`, `entries`, `versions`,
+`rejected_retention`, `objects`, `empty_copies`, `operations`, `events`, `hash_groups`,
 `scan_queue` and `discoveries`. Indexes support paged listing, content lookups and
 retained-history queries. The application checks the schema version when opening
 a session and refuses one newer than it supports.
@@ -86,7 +92,8 @@ For a regular file, the write sequence is:
 2. Write a unique temporary file in the destination directory, hashing the source.
 3. Confirm the source stayed unchanged; fsync and independently hash the copy.
 4. Publish with `renameat2(RENAME_NOREPLACE)` and fsync the directory.
-5. Commit object mapping and all non-rejected occurrences in SQLite.
+5. Commit the object mapping and all non-rejected occurrences in SQLite; for an
+   empty file, commit only that version and its `empty_copies` mapping.
 6. Export JSONL at the end of the batch.
 
 Recovery validates any published content before completing an interrupted intent.
@@ -97,7 +104,8 @@ The application uses one writer job at a time and a separate GUI read connection
 ## Inventory and query caches
 
 `hash_groups` is a rebuildable duplicate-count cache. A trigger updates it when
-the current version or source presence changes. `scan_queue` is a disposable
+the current version, source presence or scan error changes. Only nonempty,
+error-free current files participate. `scan_queue` is a disposable
 on-disk work plan created for a scan and removed on completion or cancellation.
 A subsequent scan rebuilds the plan and reuses hashes of completed, unchanged files.
 Neither table adds unretained entries to the portable archive.
@@ -108,10 +116,31 @@ visible as enumeration commits batches, before the SHA-512 pass starts. Live
 views overlay these observations and use `pending` status without inventing a
 hash or verified copy. Historical views use retained `versions`.
 
+`UNSCANNED:` in `entries.error` marks writable/locked/changing files deferred by
+the scanner. Live views suppress an earlier version's secured status even if no
+new observation was available. Its retained history is not discarded. Hashing
+reads at most the initial size and checks metadata after each 1 MiB chunk.
+
 Successful verification removes an observation; cancellation leaves it for the
 next scan. Pending entries cannot be copied or marked secured by the copy path.
 Observations are session inventory, not part of JSONL. Earlier retained versions
 continue to export while a changed live path awaits verification.
+
+## Upgrading schema 1
+
+Opening a schema-1 CCurate database creates `empty_copies(version PRIMARY KEY,
+dest, state, verified)`, transfers previously retained/rejected-retained empty
+mappings, removes empty `objects`, and rebuilds the duplicate cache. Historical
+metadata and placements remain intact. Legacy empty paths may still share their
+previous destination; migration does not modify files. New copies are independent.
+
+The importer accepts JSONL schemas 1 and 2. Schema-1 empty objects are converted
+to per-entry mappings. Schema-2 empty destinations are linked to the newly
+assigned local version IDs. Imported destinations start unchecked and need Audit.
+Exports always use schema 2; older CCurate versions reject that schema.
+Empty files cannot be relocated by content hash during Reconcile: identical
+empty content cannot identify a missing path. Move them through CCurate to keep
+mappings current.
 
 ## Activity log
 

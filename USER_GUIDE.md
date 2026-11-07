@@ -23,12 +23,26 @@ F8 records an intentional rejection; Shift+F8 reverses it. Rejected entries are
 excluded from the historical tree. The application does not delete source files.
 Rejecting an already copied entry does not delete its physical destination copy.
 
-One SHA-512 content hash has one destination location. If `Photos/IMG.jpg` and
+For nonempty regular files, one SHA-512 content hash has one destination location. If `Photos/IMG.jpg` and
 `Backup/copy.jpg` contain identical bytes, both historical paths resolve to the
 same physical copy. Each occurrence retains its original name, permissions and
 timestamps separately. You can reject one occurrence while retaining another.
 The first encountered representative has an `O` marker; duplicates have `D`.
 The initial traversal order is deterministic.
+
+Empty (0-byte) regular files are independent entries, not duplicate content.
+Copying one preserves only its own metadata and destination; other empty files
+remain unhandled. A complete-directory copy still creates its empty marker files.
+The occurrence panel explains this exception instead of listing unrelated empty
+files. A later metadata version of the same path can reuse its own empty
+location, but an unrelated empty destination is a name collision.
+
+Existing CCurate sessions upgrade automatically to schema 2. Previously retained
+empty-file paths keep their history and recorded locations, including locations
+shared by older CCurate sessions. The upgrade does not recreate, delete or move
+physical files. New empty files are never attached to those old mappings.
+Use the updated application for upgraded sessions and schema-2 JSONL indexes;
+older versions refuse the newer schema.
 
 ## Build
 
@@ -325,6 +339,7 @@ surfaces; all file states also have textual labels.
 | Marker | Meaning |
 |---|---|
 | PENDING | Observed entry still awaiting scan verification |
+| UNSCANNED | Writable, locked or changing file deferred; close its writer and scan again |
 | UNCOPIED | No verified destination content secured yet |
 | OK | SHA-512-verified destination content, or retained metadata for a non-file object |
 | O xN / D xN | First representative / duplicate among N current content occurrences |
@@ -343,7 +358,7 @@ surfaces; all file states also have textual labels.
 Directory, secured, duplicate, error and rejected entries have semantic colors.
 The selected-row highlight marks focus; it does not mean retained. A verified
 status describes the last verification, not continuous monitoring. Reviewing a
-file does not copy it, and rejecting it never deletes source data.
+file does not copy it, and rejecting it never deletes source data. Empty files never show O/D duplicate markers.
 
 ## UI scale
 
@@ -478,8 +493,26 @@ returns `EXDEV`; an automatic copy/delete fallback is not implemented.
 Each launch refreshes the tree. Unchanged files are identified by device, inode,
 size, mode, mtime and ctime, with nanosecond timestamps. Changed files receive a
 new version and SHA-512; earlier retained versions remain archived. A newly found
-occurrence of verified content can be associated with its existing copy.
-Ctrl+Shift+R forces reading every file again. There is no continuous filesystem watcher.
+occurrence of verified nonempty content can be associated with its existing copy.
+Ctrl+Shift+R requests verification of every file again. Busy files are still deferred.
+There is no continuous filesystem watcher.
+
+**UNSCANNED** entries remain in the live tree, Details and the unsecured filter.
+They cannot be copied or counted as secured until a later successful scan. The
+scanner continues with other files; reasons are recorded as warnings in Activity
+and `.ccurate/activity.log`. Close the editing application and press **Ctrl+R**,
+or restart CCurate, to retry. Retained older versions remain available in history.
+A harmless read-only open handle is not a reason to skip a file.
+
+Linux checks a cached snapshot of writable descriptors under `/proc` (refreshed
+at most once every 30 seconds) and queries advisory write locks when a file is
+opened. Windows probes handle sharing and defers sharing/locking conflicts.
+Descriptor discovery is best effort: restricted process visibility, writers
+opened after a snapshot, memory mappings and remote writers may evade it.
+Every hash read is also limited to the initial file size and checks size/mtime/ctime
+and identity after each 1 MiB chunk and at completion. A growing file cannot
+make the hash loop chase a moving EOF. This does not impose a hard timeout on
+kernel I/O stalled by a failing disk or network filesystem.
 
 Copying checks source freshness, hashes while reading and verifies the destination
 by reading it again. A detected change causes an error and requires a rescan.
@@ -487,7 +520,7 @@ History contains retained versions of individual paths, not an atomic snapshot
 of the entire live filesystem at one instant.
 
 `DESTINATION/.ccurate/catalog.sqlite` holds inventory, decisions, versions,
-content mappings, operation history and view settings. The database uses WAL and
+content mappings, per-version empty-file locations, operation history and view settings. The database uses WAL and
 durable commits. Scanning checkpoints every 128 entries. After interruption, the
 program reconciles pending copy/move operations and continues from saved state.
 The unstarted remainder of a multiple-selection operation is not a durable work

@@ -18,6 +18,7 @@ set(CCURATE_WINDOWS_FILES
 )
 add_executable(ccurate WIN32
  src/main.c src/util.c src/activity.c src/catalog.c src/operations.c src/preview.c src/view.c
+ src/platform/windows/source_access_windows.c
  src/platform/windows/main_windows.c src/platform/windows/ccurate.rc
  ${CCURATE_WINDOWS_FILES}
 )

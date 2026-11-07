@@ -135,7 +135,8 @@ int main(int argc, char **argv)
         assert(r->count[1] == VIEW_PAGE_SIZE && r->total[1] >= 1000000);
         printf("first page %.3f s; total=%lld first=%s copies=%d\n", (monotonic_ns() - start) / 1e9,
                (long long)r->total[1], r->rows[1][0].name, r->rows[1][0].copies);
-        assert(r->rows[1][0].copies >= 1000000);
+        assert(!strcmp(argv[1], "empty") ? r->rows[1][0].copies == 0 && !r->rows[1][0].original
+                                         : r->rows[1][0].copies >= 1000000);
         view_result_free(r);
         request.anchor[1] = "big/f0754321";
         request.page[1] = 0;

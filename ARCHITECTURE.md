@@ -135,3 +135,17 @@ desktop behavior is retained. Windows preview process and default-app launch
 implementations are separate translation units, not replacements for Linux
 services. [The Windows guide](docs/WINDOWS_PORT.md#source-separation) maps each
 platform module and documents differences that cannot be emulated faithfully.
+
+## Source read availability
+
+`include/source_access.h` defines the shared writer-availability probe.
+`src/platform/linux/source_access_linux.c` caches writable descriptor identities
+from `/proc` and queries advisory locks; the cache belongs to the scanner's
+Catalog and is reset between scans. `src/platform/windows/source_access_windows.c`
+uses a native sharing probe. Neither helper writes source files.
+The common hash loop bounds reads by the initial size and validates metadata
+after each chunk. Deferred observations leave immutable retained versions intact.
+
+Empty regular files use `empty_copies`, keyed by version, instead of a shared
+`objects` hash mapping. Live/history queries, target state, audit, copy recovery,
+destination moves and schema-2 export resolve this table alongside nonempty objects.
