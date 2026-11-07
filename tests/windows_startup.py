@@ -2,6 +2,7 @@
 """Windows bootstrap failures, stderr capture and pre-entry loader diagnostics."""
 from pathlib import Path
 import os
+import ntpath
 import shutil
 import struct
 import subprocess
@@ -105,8 +106,10 @@ class Startup(unittest.TestCase):
         # lookup and propagation of the application exit status.
         command = APP.parent / 'CCurate-Debug.cmd'
         comspec = Path(os.environ['SystemRoot']) / 'System32/cmd.exe'
-        result = subprocess.run([str(comspec), '/d', '/c', 'call',
-                                 str(command).replace('/', chr(92)), '-NoPause', '--version'],
+        # CMD parses its own command line differently from CRT applications.
+        # Normalize argv[0] as well: active MSYS2 Python emits forward slashes.
+        result = subprocess.run([ntpath.normpath(str(comspec)), '/d', '/c', 'call',
+                                 ntpath.normpath(str(command)), '-NoPause', '--version'],
                                 capture_output=True, timeout=45, env=self.env, cwd=self.root)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn(b'Process exit code: 0 (0x00000000)', result.stdout)
