@@ -1,5 +1,6 @@
 #include "curator.h"
 #include "source_access.h"
+#include "source_refresh.h"
 #include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -306,7 +307,7 @@ static int scan_level(const char *error)
 }
 static int update_error(Catalog *c, const char *p, const char *error)
 {
-    if (error && *error)
+    if (error && *error && strcmp(error, "UNSCANNED: observed changes awaiting verification"))
         activity_log(c, scan_level(error), "scan.path", p, NULL, "%s", error);
     sqlite3_stmt *s = sql_prepare(c, "UPDATE entries SET error=? WHERE path=?");
     bind_text(s, 1, error);
@@ -539,7 +540,8 @@ int scan_one(Catalog *c, const char *path, int full, int64_t generation)
 static _Thread_local unsigned scan_steps;
 /* The plan is a disposable table in the destination catalog, never a RAM array of a whole disk.
  * An estimate is deliberately unavailable until this enumeration has finished. */
-static int plan_one(Catalog *c, const char *path, int full, int64_t generation, int *directory)
+static int plan_one(Catalog *c, const char *path, int full, int64_t generation, int *directory,
+                    int lazy)
 {
     char *leaf = NULL;
     int parent = *path ? parent_beneath(c->sfd, path, 0, &leaf) : dup(c->sfd);
@@ -549,9 +551,10 @@ static int plan_one(Catalog *c, const char *path, int full, int64_t generation, 
     int saved_errno = errno;
     *directory = ok && S_ISDIR(st.st_mode);
     int regular = ok && S_ISREG(st.st_mode) && !kernel_fs(parent), same = 0, has_hash = 0,
-        had_error = 0;
+        had_error = 0, present = 0, pending = 0;
     sqlite3_stmt *q =
-        sql_prepare(c, "SELECT v.dev,v.ino,v.size,v.mode,v.mtime,v.ctime,v.hash,e.error "
+        sql_prepare(c, "SELECT v.dev,v.ino,v.size,v.mode,v.mtime,v.ctime,v.hash,e.error,e.present,"
+                       "EXISTS(SELECT 1 FROM discoveries d WHERE d.eid=e.id) "
                        "FROM entries e JOIN versions v ON v.id=e.current WHERE e.path=?");
     bind_text(q, 1, path);
     if (sqlite3_step(q) == SQLITE_ROW && ok) {
@@ -565,10 +568,32 @@ static int plan_one(Catalog *c, const char *path, int full, int64_t generation, 
                    *error = (char *)sqlite3_column_text(q, 7);
         has_hash = hash && *hash;
         had_error = error && *error;
+        present = sqlite3_column_int(q, 8);
+        pending = sqlite3_column_int(q, 9);
     }
     sqlite3_finalize(q);
     int busy = regular && source_writer_busy(c, &st, -1);
-    int needs = regular && (full || !same || !has_hash || had_error || busy);
+    int needs = regular && (full || !same || !has_hash || had_error || busy || (lazy && pending));
+    /* Revisiting an unchanged folder must not dirty the main database, evict
+     * cached pages, or generate millions of redundant WAL writes. */
+    if (lazy && same && !needs && !had_error && !pending) {
+        int result = 0;
+        if (!present) {
+            atomic_store(&c->refresh_changed, 1);
+            q = sql_prepare(c, "UPDATE entries SET present=1 WHERE path=?");
+            bind_text(q, 1, path);
+            int step = sqlite3_step(q);
+            sqlite3_finalize(q);
+            if (step != SQLITE_DONE)
+                result = sql_error(c, step, "restore observed entry");
+        }
+        atomic_fetch_add(&c->scan.found, 1);
+        close(parent);
+        free(leaf);
+        return result;
+    }
+    if (lazy)
+        atomic_store(&c->refresh_changed, 1);
     /* Publish observed names and basic metadata immediately, without inventing a
      * verified version or changing retained history before content is read. */
     char *par = parent_path(path);
@@ -589,7 +614,7 @@ static int plan_one(Catalog *c, const char *path, int full, int64_t generation, 
         free(leaf);
         return fail(c, "Cannot publish scan inventory");
     }
-    if (ok && (!same || needs || had_error)) {
+    if (ok && (!same || needs || had_error || (lazy && pending))) {
         struct statx sx;
         int64_t born = 0;
         if (!statx(parent, *path ? leaf : "", AT_SYMLINK_NOFOLLOW | (*path ? 0 : AT_EMPTY_PATH),
@@ -615,7 +640,9 @@ static int plan_one(Catalog *c, const char *path, int full, int64_t generation, 
             sqlite3_step(q);
             sqlite3_finalize(q);
         }
-        update_error(c, path, "");
+        /* Exclude the old content from live duplicate groups until verified.
+         * Retained versions and their destination mappings remain untouched. */
+        update_error(c, path, lazy ? "UNSCANNED: observed changes awaiting verification" : "");
     } else if (!ok)
         update_error(c, path,
                      saved_errno == EBUSY || saved_errno == EAGAIN
@@ -624,7 +651,8 @@ static int plan_one(Catalog *c, const char *path, int full, int64_t generation, 
     if (parent >= 0)
         close(parent);
     free(leaf);
-    q = sql_prepare(c, "INSERT INTO scan_queue(path,bytes,hashing) VALUES(?,?,?)");
+    q = sql_prepare(c, lazy ? "INSERT INTO refresh_queue(path,bytes,hashing) VALUES(?,?,?)"
+                            : "INSERT INTO scan_queue(path,bytes,hashing) VALUES(?,?,?)");
     bind_text(q, 1, path);
     sqlite3_bind_int64(q, 2, needs ? st.st_size : 0);
     sqlite3_bind_int(q, 3, needs);
@@ -638,6 +666,11 @@ static int plan_one(Catalog *c, const char *path, int full, int64_t generation, 
         atomic_fetch_add(&c->scan.hash_files, 1);
     }
     return 0;
+}
+int catalog_observe(Catalog *c, const char *path, int64_t generation)
+{
+    int directory = 0;
+    return plan_one(c, path, 0, generation, &directory, 1);
 }
 typedef struct Ancestor {
     dev_t dev;
@@ -663,7 +696,7 @@ static int walk(Catalog *c, const char *path, int full, int64_t gen, const Ances
         return -1;
     progress(c, "Listing files: %s", path);
     int directory = 0;
-    int rc = plan_one(c, path, full, gen, &directory);
+    int rc = plan_one(c, path, full, gen, &directory, 0);
     if (rc)
         return rc;
     if (++scan_steps % 128 == 0) {
@@ -1223,8 +1256,9 @@ int64_t entry_position(Catalog *c, const char *parent, const char *anchor, int h
     sqlite3_finalize(q);
     return position;
 }
-int list_entries_page(Catalog *c, const char *path, Entry **out, int historical, int unsecured,
-                      const char *search, int page, int limit, int fast, int sort, int64_t *total)
+static int list_page(Catalog *c, const char *path, Entry **out, int historical, int unsecured,
+                     const char *search, int page, int limit, int fast, int sort, int64_t *total,
+                     int defer_totals)
 {
     if (total)
         *total = count_entries(c, path, historical, unsecured, search, fast);
@@ -1250,26 +1284,11 @@ int list_entries_page(Catalog *c, const char *path, Entry **out, int historical,
         else if (!strncmp(e.error, "UNSCANNED:", 10))
             *e.error = 0;
         int dir = !strcmp(e.kind, "directory");
-        if (dir && !fast) {
-            sqlite3_stmt *d = sql_prepare(
-                c, "SELECT COUNT(*),COALESCE(SUM(CASE WHEN e.error='' AND NOT EXISTS(SELECT 1 FROM "
-                   "discoveries d "
-                   "WHERE d.eid=e.id) AND ((COALESCE(z.state,o.state)='verified' AND v.hash IS NOT "
-                   "NULL) OR (v.accepted=1 AND e.kind<>'file')) THEN 1 ELSE 0 "
-                   "END),0),COALESCE(SUM(v.accepted),0) FROM entries e LEFT JOIN versions v ON "
-                   "v.id=e.current LEFT JOIN objects o ON o.hash=v.hash AND v.size>0 LEFT JOIN "
-                   "empty_copies z ON z.version=v.id WHERE e.path>=?||'/' AND "
-                   "e.path<?||'0' AND e.discarded=0 AND e.present=1");
-            bind_text(d, 1, e.path);
-            bind_text(d, 2, e.path);
-            if (sqlite3_step(d) == SQLITE_ROW) {
-                e.children = sqlite3_column_int64(d, 0);
-                e.secured = sqlite3_column_int64(d, 1);
-            }
-            sqlite3_finalize(d);
-        }
-        if (dir && fast)
+        if (dir) {
             e.children = e.secured = -1;
+            if (!fast && !defer_totals)
+                entry_directory_totals(c, &e);
+        }
         if (n == cap) {
             cap = cap ? cap * 2 : 64;
             rows = realloc(rows, cap * sizeof(*rows));
@@ -1281,6 +1300,40 @@ int list_entries_page(Catalog *c, const char *path, Entry **out, int historical,
     sqlite3_finalize(s);
     *out = rows;
     return n;
+}
+int entry_directory_totals(Catalog *c, Entry *e)
+{
+    sqlite3_stmt *d = sql_prepare(
+        c, "SELECT COUNT(*),COALESCE(SUM(CASE WHEN e.error='' AND NOT EXISTS(SELECT 1 FROM "
+           "discoveries d WHERE d.eid=e.id) AND ((COALESCE(z.state,o.state)='verified' AND "
+           "v.hash IS NOT NULL) OR (v.accepted=1 AND e.kind<>'file')) THEN 1 ELSE 0 END),0) "
+           "FROM entries e LEFT JOIN versions v ON v.id=e.current LEFT JOIN objects o ON "
+           "o.hash=v.hash AND v.size>0 LEFT JOIN empty_copies z ON z.version=v.id "
+           "WHERE e.path>=?||'/' AND e.path<?||'0' AND e.discarded=0 AND e.present=1");
+    if (!d)
+        return -1;
+    bind_text(d, 1, e->path);
+    bind_text(d, 2, e->path);
+    int rc = sqlite3_step(d);
+    if (rc == SQLITE_ROW) {
+        e->children = sqlite3_column_int64(d, 0);
+        e->secured = sqlite3_column_int64(d, 1);
+    }
+    sqlite3_finalize(d);
+    return rc == SQLITE_ROW ? 0 : -1;
+}
+int list_entries_page(Catalog *c, const char *path, Entry **out, int historical, int unsecured,
+                      const char *search, int page, int limit, int fast, int sort, int64_t *total)
+{
+    return list_page(c, path, out, historical, unsecured, search, page, limit, fast, sort, total,
+                     0);
+}
+int list_entries_page_deferred(Catalog *c, const char *path, Entry **out, int historical,
+                               int unsecured, const char *search, int page, int limit, int fast,
+                               int sort, int64_t *total)
+{
+    return list_page(c, path, out, historical, unsecured, search, page, limit, fast, sort, total,
+                     1);
 }
 int list_entries(Catalog *c, const char *path, Entry **out, int historical, int unsecured,
                  const char *search)
@@ -1405,86 +1458,155 @@ char *entry_details(Catalog *c, const Entry *e)
 void catalog_summary(Catalog *c, Summary *r)
 {
     memset(r, 0, sizeof(*r));
+    int own_transaction = sqlite3_get_autocommit(c->db);
+    if (own_transaction && sql_exec(c, "BEGIN"))
+        return;
     sqlite3_stmt *s = sql_prepare(
-        c,
-        "SELECT COUNT(*),COALESCE(SUM(e.discarded=0 AND e.error='' AND NOT EXISTS(SELECT 1 FROM "
-        "discoveries d "
-        "WHERE d.eid=e.id) AND ((COALESCE(z.state,o.state)='verified' AND v.hash IS NOT "
-        "NULL) OR (v.accepted=1 AND "
-        "e.kind<>'file'))),0),COALESCE(SUM(e.discarded),0),COALESCE(SUM(e.reviewed),0),COALESCE("
-        "SUM(e.error<>'' OR v.meta_error<>''),0),COALESCE(SUM(e.present=0),0),COALESCE(SUM(e.kind "
-        "NOT IN ('file','directory')),0) FROM entries e LEFT JOIN versions v ON v.id=e.current "
-        "LEFT JOIN objects o ON o.hash=v.hash AND v.size>0 LEFT JOIN empty_copies z ON "
-        "z.version=v.id WHERE e.path<>'' AND e.kind<>'directory'");
-    if (sqlite3_step(s) == SQLITE_ROW) {
-        r->paths = sqlite3_column_int64(s, 0);
-        r->secured = sqlite3_column_int64(s, 1);
-        r->rejected = sqlite3_column_int64(s, 2);
-        r->reviewed = sqlite3_column_int64(s, 3);
-        r->errors = sqlite3_column_int64(s, 4);
-        r->missing = sqlite3_column_int64(s, 5);
-        r->special = sqlite3_column_int64(s, 6);
-    }
+        c, "SELECT COUNT(*),COALESCE(SUM(e.discarded=0 AND e.error='' AND d.eid IS NULL AND "
+           "((COALESCE(z.state,o.state)='verified' AND v.hash IS NOT NULL) OR "
+           "(v.accepted=1 AND e.kind<>'file'))),0),COALESCE(SUM(e.discarded),0),"
+           "COALESCE(SUM(e.reviewed),0),COALESCE(SUM(e.error<>'' OR v.meta_error<>''),0),"
+           "COALESCE(SUM(e.present=0),0),COALESCE(SUM(e.kind NOT IN ('file','directory')),0),"
+           "COALESCE(SUM(e.kind='file' AND e.present=1 AND e.discarded=0),0),"
+           "COALESCE(SUM(CASE WHEN e.kind='file' AND e.present=1 AND e.discarded=0 "
+           "THEN MAX(COALESCE(d.size,v.size,0),0) ELSE 0 END),0),"
+           "COALESCE(SUM(e.kind='file' AND e.present=1 AND e.discarded=0 AND e.error='' "
+           "AND d.eid IS NULL AND v.hash IS NOT NULL),0),"
+           "COALESCE(SUM(CASE WHEN e.kind='file' AND e.present=1 AND e.discarded=0 AND "
+           "e.error='' AND d.eid IS NULL AND v.hash IS NOT NULL THEN v.size ELSE 0 END),0),"
+           "COALESCE(SUM(e.kind='file' AND e.present=1 AND e.discarded=0 AND e.error='' "
+           "AND d.eid IS NULL AND v.hash IS NOT NULL AND v.size=0),0) "
+           "FROM entries e LEFT JOIN versions v ON v.id=e.current LEFT JOIN objects o "
+           "ON o.hash=v.hash AND v.size>0 LEFT JOIN empty_copies z ON z.version=v.id "
+           "LEFT JOIN discoveries d ON d.eid=e.id WHERE e.path<>'' AND e.kind<>'directory'");
+    int rc = s ? sqlite3_step(s) : SQLITE_ERROR;
+    if (rc != SQLITE_ROW)
+        goto error;
+    r->paths = sqlite3_column_int64(s, 0);
+    r->secured = sqlite3_column_int64(s, 1);
+    r->rejected = sqlite3_column_int64(s, 2);
+    r->reviewed = sqlite3_column_int64(s, 3);
+    r->errors = sqlite3_column_int64(s, 4);
+    r->missing = sqlite3_column_int64(s, 5);
+    r->special = sqlite3_column_int64(s, 6);
+    r->source_files = sqlite3_column_int64(s, 7);
+    r->source_bytes = sqlite3_column_int64(s, 8);
+    r->hashed_files = sqlite3_column_int64(s, 9);
+    r->hashed_bytes = sqlite3_column_int64(s, 10);
+    r->empty_files = sqlite3_column_int64(s, 11);
     sqlite3_finalize(s);
+    /* objects already stores one row per nonempty content hash. An indexed
+     * EXISTS avoids materializing millions of repeated hashes just to deduplicate
+     * the estimate. Old versions and pending observations must not count. */
     s = sql_prepare(
-        c, "SELECT COUNT(*),COALESCE(SUM(size),0),COALESCE(SUM(CASE WHEN state<>'verified' THEN "
-           "size ELSE 0 END),0) FROM objects WHERE hash IN (SELECT v.hash FROM entries e JOIN "
-           "versions v ON v.id=e.current WHERE e.discarded=0 AND e.present=1)");
-    if (sqlite3_step(s) == SQLITE_ROW) {
-        r->unique = sqlite3_column_int64(s, 0);
-        r->unique_bytes = sqlite3_column_int64(s, 1);
-        r->needed_bytes = sqlite3_column_int64(s, 2);
-    }
+        c, "SELECT COUNT(*),COALESCE(SUM(o.size),0),COALESCE(SUM(CASE WHEN "
+           "o.state='verified' AND o.dest IS NOT NULL THEN 0 ELSE o.size END),0) FROM objects o "
+           "WHERE o.size>0 AND EXISTS (SELECT 1 FROM versions v JOIN entries e ON e.current=v.id "
+           "AND e.id=v.eid WHERE v.hash=o.hash AND e.kind='file' AND e.discarded=0 AND "
+           "e.present=1 AND e.error='' AND NOT EXISTS (SELECT 1 FROM discoveries d WHERE "
+           "d.eid=e.id))");
+    rc = s ? sqlite3_step(s) : SQLITE_ERROR;
+    if (rc != SQLITE_ROW)
+        goto error;
+    r->unique = sqlite3_column_int64(s, 0);
+    r->unique_bytes = sqlite3_column_int64(s, 1);
+    r->needed_bytes = sqlite3_column_int64(s, 2);
     sqlite3_finalize(s);
     s = sql_prepare(c, "SELECT COUNT(*) FROM entries e LEFT JOIN versions v ON v.id=e.current "
                        "WHERE e.kind='directory' AND (e.error<>'' OR v.meta_error<>'')");
-    if (sqlite3_step(s) == SQLITE_ROW)
-        r->errors += sqlite3_column_int64(s, 0);
+    rc = s ? sqlite3_step(s) : SQLITE_ERROR;
+    if (rc != SQLITE_ROW)
+        goto error;
+    r->errors += sqlite3_column_int64(s, 0);
     sqlite3_finalize(s);
-    struct statvfs v;
-    if (!fstatvfs(c->dfd, &v)) {
-        r->free_bytes = (uint64_t)v.f_bavail * v.f_frsize;
-        r->total_bytes = (uint64_t)v.f_blocks * v.f_frsize;
+    s = sql_prepare(c, "SELECT value FROM settings WHERE key='scan_complete'");
+    rc = s ? sqlite3_step(s) : SQLITE_ERROR;
+    if (rc != SQLITE_ROW && rc != SQLITE_DONE)
+        goto error;
+    r->traversal_complete = rc == SQLITE_ROW && sqlite3_column_int(s, 0) == 1;
+    sqlite3_finalize(s);
+    if (own_transaction && sql_end(c, 0))
+        return;
+    r->unscanned_files = r->source_files - r->hashed_files;
+    r->unscanned_bytes = r->source_bytes - r->hashed_bytes;
+    r->duplicate_files = r->hashed_files - r->empty_files - r->unique;
+    r->duplicate_bytes = r->hashed_bytes - r->unique_bytes;
+    struct statvfs fs;
+    if (!fstatvfs(c->dfd, &fs)) {
+        r->free_bytes = (uint64_t)fs.f_bavail * fs.f_frsize;
+        r->total_bytes = (uint64_t)fs.f_blocks * fs.f_frsize;
     }
+    r->valid = 1;
+    return;
+error:
+    sqlite3_finalize(s);
+    if (rc != SQLITE_INTERRUPT)
+        sql_error(c, rc, "calculate space estimate");
+    if (own_transaction)
+        sql_rollback(c);
+}
+char *summary_format(const Summary *s)
+{
+    if (!s->valid)
+        return xstrdup("Space estimate unavailable: calculation interrupted or database error.\n"
+                       "Try Statistics / balance (Ctrl+B) again; see Activity for diagnostics.");
+    char raw[40], unique[40], saved[40], needed[40], available[40], unknown[40];
+    human_bytes(s->source_bytes, raw);
+    human_bytes(s->unique_bytes, unique);
+    human_bytes(s->duplicate_bytes, saved);
+    human_bytes(s->needed_bytes, needed);
+    human_bytes(s->free_bytes, available);
+    human_bytes(s->unscanned_bytes, unknown);
+    Buf b = {0};
+    badd(&b,
+         "DEDUPLICATION / SPACE ESTIMATE\n\n"
+         "Scope: current, present, non-rejected regular files.\n"
+         "Catalog snapshot: unvisited folders may have changed.\n"
+         "Ctrl+R checks the whole tree; Ctrl+Shift+R forces rehashing.\n\n"
+         "Before deduplication: %s (%llu B), %llu files\n"
+         "After deduplication: %s (%llu B)%s\n"
+         "Duplicate data saved: %s (%llu B), %.2f%% of hashed bytes\n"
+         "Redundant nonempty copies: %llu\n"
+         "Unique nonempty contents: %llu\n"
+         "Empty files kept individually: %llu (0 data bytes each)\n"
+         "Additional data still to secure: %s (%llu B)\n"
+         "Free on destination: %s\n\n",
+         raw, (unsigned long long)s->source_bytes, (unsigned long long)s->source_files, unique,
+         (unsigned long long)s->unique_bytes,
+         s->unscanned_files || !s->traversal_complete ? " [KNOWN CONTENT ONLY]" : "", saved,
+         (unsigned long long)s->duplicate_bytes,
+         s->hashed_bytes ? 100.0 * (double)s->duplicate_bytes / (double)s->hashed_bytes : 0.0,
+         (unsigned long long)s->duplicate_files, (unsigned long long)s->unique,
+         (unsigned long long)s->empty_files, needed, (unsigned long long)s->needed_bytes,
+         available);
+    badd(&b,
+         "Unscanned / changing files: %llu (last observed size: %s)\n"
+         "Complete source traversal: %s\n"
+         "Unscanned contents are excluded from deduplication totals.\n"
+         "Unknown or undiscovered files can increase the final requirement.\n\n"
+         "These are logical content bytes, not allocated disk space.\n"
+         "Compression, sparse files, filesystem blocks and metadata affect\n"
+         "actual usage. Database/JSONL and retained older versions are extra.\n\n"
+         "AUDIT / BALANCE\n\n"
+         "Entries (excluding directories): %llu\n"
+         "Secured: %llu\nIntentionally rejected: %llu\nReviewed: %llu\n"
+         "Errors / incomplete metadata: %llu\nAbsent from source: %llu\n"
+         "Special objects / links: %llu\n\n"
+         "Rejected entries are not migration gaps.\n"
+         "Scan errors are not rejection decisions.\n"
+         "SHA-512 audit: Ctrl+A (reread destination data).",
+         (unsigned long long)s->unscanned_files, unknown,
+         s->traversal_complete ? "yes" : "no / errors", (unsigned long long)s->paths,
+         (unsigned long long)s->secured, (unsigned long long)s->rejected,
+         (unsigned long long)s->reviewed, (unsigned long long)s->errors,
+         (unsigned long long)s->missing, (unsigned long long)s->special);
+    return b.s;
 }
 char *summary_text(Catalog *c)
 {
-    Summary s;
-    catalog_summary(c, &s);
-    char a[40], b[40], d[40];
-    human_bytes(s.unique_bytes, a);
-    human_bytes(s.needed_bytes, b);
-    human_bytes(s.free_bytes, d);
-    char *complete = setting(c, "scan_complete", "0");
-    char *r = fmt("AUDIT / BALANCE\n"
-                  "\n"
-                  "Complete source traversal: %s\n"
-                  "Entries (excluding directories): %llu\n"
-                  "Secured: %llu\n"
-                  "Intentionally rejected: %llu\n"
-                  "Reviewed: %llu\n"
-                  "Errors / incomplete metadata: %llu\n"
-                  "Absent from source: %llu\n"
-                  "Special objects / links: %llu\n"
-                  "\n"
-                  "Unique current contents: %llu\n"
-                  "Their logical size: %s\n"
-                  "Remaining logical data: %s\n"
-                  "Free on destination: %s\n"
-                  "\n"
-                  "ZFS: compression, sparse files, reservations and overhead\n"
-                  "affect actual space usage.\n"
-                  "\n"
-                  "Rejected entries are not migration gaps.\n"
-                  "Scan errors are not rejection decisions.\n"
-                  "SHA-512 audit: Ctrl+A (reread destination data).",
-                  !strcmp(complete, "1") ? "yes" : "no / errors", (unsigned long long)s.paths,
-                  (unsigned long long)s.secured, (unsigned long long)s.rejected,
-                  (unsigned long long)s.reviewed, (unsigned long long)s.errors,
-                  (unsigned long long)s.missing, (unsigned long long)s.special,
-                  (unsigned long long)s.unique, a, b, d);
-    free(complete);
-    return r;
+    Summary summary;
+    catalog_summary(c, &summary);
+    return summary_format(&summary);
 }
 
 static int output_path(FILE *f, const char *key, const char *raw)

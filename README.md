@@ -69,9 +69,9 @@ contains retained entries; it does not turn all unreviewed clutter into history.
 ## Workflow
 
 1. **Open the source and destination.** The old drive appears on the right;
-   the destination is on the left. Use existing mounted directories. An
-   incremental scan starts automatically and discovers hidden entries as well
-   as ordinary files.
+   the destination is on the left. Use existing mounted directories. A new
+   session starts an initial scan, including hidden entries. An existing session
+   opens its saved catalog immediately, without another whole-drive traversal.
 
 2. **Let the inventory and hashing complete.** Files appear while enumeration
    runs. The status bar shows the current phase, errors, hashing progress,
@@ -92,18 +92,31 @@ contains retained entries; it does not turn all unreviewed clutter into history.
    Empty (0-byte) files are tracked individually: each keeps its own metadata and
    destination, without duplicate markers or automatic retention of other empty files.
 
-5. **Resume and refine.** Close the application and reopen the same source and
-   destination to continue. Files detected as open for writing, locked or changing
-   during a read are marked **UNSCANNED**, skipped and retried on the next scan.
-   Scanning refreshes changed paths; earlier retained
+5. **Resume and refine.** Reopen the same source and destination to continue from
+   the saved catalog. Entering a source folder checks its direct children in the
+   background. Unchanged files reuse their hashes; new or changed files are
+   verified lazily. F5 takes priority over that background work and checks the
+   selected content before copying; copying a directory also checks its descendants.
+   Files open for writing, locked or changing during a read are **UNSCANNED** and
+   retried on a later folder visit or explicit refresh. Earlier retained
    versions remain available. Use **F6** to move or rename destination entries
    while keeping historical mappings current. Filter to unsecured items to
    concentrate on what remains.
 
-6. **Audit and account for the remainder.** Audit rereads destination content and
+6. **Audit and account for the remainder.** Before finalizing a live source, use
+   Ctrl+R to refresh unvisited paths (Ctrl+Shift+R also forces every hash).
+   Audit rereads destination content and
    checks SHA-512. Balance separates secured entries, deliberate rejections,
    unresolved work and errors, and estimates the remaining unique content size.
    Resolve gaps rather than treating a completed scan as a completed archive.
+
+   **How much space would one copy of everything take?** Open **Help → Statistics /
+   balance** or press **Ctrl+B**. The report shows logical bytes before and after
+   deduplication, duplicate bytes saved, empty files, unknown/unscanned files and
+   additional data still to secure. Its scope is present, non-rejected regular
+   files. The top bar shows **Unique**, **Saved** and **To secure**; `Unique*` marks
+   incomplete scan coverage. Filesystem compression, sparse allocation and metadata
+   mean physical disk usage can differ from these logical-byte estimates.
 
 7. **Browse the past from the new drive.** Switch to the historical view, or
    launch with `--browse` after disconnecting the source. Navigate the retained
@@ -134,6 +147,13 @@ scrollbars span the entire directory, including entries on other pages. Click
 any column header to sort, then click again to reverse: name, status/copies,
 size, date or permissions. Modified and created dates are both available.
 Sorting applies to the whole directory and is saved independently for each pane.
+
+Source lists appear before recursive folder counters finish. `counting...` is a
+temporary counter placeholder; it does not prevent navigation. Recently visited
+source/history pages use a bounded memory cache that is invalidated by catalog
+changes. Global statistics run on a separate database reader, so requesting a
+whole-drive estimate does not hold up browsing. Existing sessions need no schema
+conversion or forced rehash for these changes.
 
 ### Main controls
 
@@ -283,9 +303,12 @@ directory to continue curation. See [archive format](FORMAT.md) and
   ownership, permissions, timestamps and regular-file/directory xattrs, including
   exposed ACLs, are recorded. The destination receives ordinary permissions and
   timestamps, not an exact recreation of ownership, ACLs or privileged mode bits.
-- **The source can change.** Startup rescans and freshness checks catch changes;
-  a full scan forces rehashing. There is no continuous filesystem watcher or
-  atomic whole-filesystem snapshot. Verified status refers to the last check.
+- **The source can change.** Folder visits compare size, nanosecond mtime/ctime,
+  identity and mode with the saved version. Unvisited folders and global statistics
+  reflect the catalog's last observations. **Scan → Refresh this folder** checks
+  the current folder; **Ctrl+R** checks the entire tree and **Ctrl+Shift+R** forces
+  rehashing. There is no continuous watcher or atomic filesystem snapshot.
+  Metadata comparison cannot detect every possible content change.
 - **Large catalogs still need space and validation.** Scans and view queries run
   in workers; the scan plan lives on disk and lists are paged. Remaining bytes
   are logical content sizes, not a guarantee of physical space after compression,

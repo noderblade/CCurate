@@ -174,7 +174,7 @@ static void gui_pane_paint(Gui *ui, RPainter *p, int side, float x, float y, flo
         else if (side && e->pending)
             snprintf(state, sizeof(state), *e->error ? "ERROR" : "PENDING");
         else if (dir && side && e->children < 0)
-            snprintf(state, sizeof(state), "scanning...");
+            snprintf(state, sizeof(state), atomic_load(&ui->busy) ? "scanning..." : "counting...");
         else if (dir && side)
             snprintf(state, sizeof(state), "%s %lld/%lld",
                      e->discarded                                 ? "REJ"
@@ -249,9 +249,17 @@ void gui_render(Gui *ui, RPainter *p, float w, float h)
     char a[40], b[40];
     human_bytes(atomic_load(&ui->c->storage.free_bytes), a);
     human_bytes(ui->summary.needed_bytes, b);
+    char unique[40], saved[40];
+    human_bytes(ui->summary.unique_bytes, unique);
+    human_bytes(ui->summary.duplicate_bytes, saved);
     char *status =
-        fmt("Free: %s | Remaining: %s | Secured: %llu | Rejected: %llu", a, b,
-            (unsigned long long)ui->summary.secured, (unsigned long long)ui->summary.rejected);
+        ui->summary.valid
+            ? fmt("Free: %s | Unique%s: %s | Saved: %s | To secure: %s | OK: %llu | Rejected: %llu "
+                  "| Ctrl+B",
+                  a, ui->summary.unscanned_files || !ui->summary.traversal_complete ? "*" : "",
+                  unique, saved, b, (unsigned long long)ui->summary.secured,
+                  (unsigned long long)ui->summary.rejected)
+            : fmt("Free: %s | Calculating space estimate... | Statistics: Ctrl+B", a);
     gui_text_clip(ui, p, 18, 42, w - 36, 21, status, GUI_COLOR(ui, accent), 13);
     free(status);
     char database[40], wal[40], index[40], db_total[40];
@@ -277,7 +285,14 @@ void gui_render(Gui *ui, RPainter *p, float w, float h)
     human_bytes(ui->scan.read_bytes, done);
     human_bytes(ui->scan.planned_bytes, planned);
     int scanning = ui->job && !strcmp(ui->job, "scan");
-    if (scanning && ui->scan.phase == SCAN_ENUMERATE)
+    int refreshing = atomic_load(&ui->busy) && ui->job && !strcmp(ui->job, "refresh");
+    if (refreshing)
+        snprintf(
+            line, sizeof(line),
+            "FOLDER CHECK: %llu entries | changed files %llu/%llu | SHA-512 read %s | errors %llu",
+            (unsigned long long)ui->scan.found, (unsigned long long)ui->scan.hashed_files,
+            (unsigned long long)ui->scan.hash_files, done, (unsigned long long)ui->scan.errors);
+    else if (scanning && ui->scan.phase == SCAN_ENUMERATE)
         snprintf(line, sizeof(line),
                  "ENUMERATING: %llu entries | SHA-512: %s | elapsed %s | ETA: counting work",
                  (unsigned long long)ui->scan.found, planned, elapsed);

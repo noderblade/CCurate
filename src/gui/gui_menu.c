@@ -52,7 +52,11 @@ static const Action actions[] = {
     {0, "Save session and exit", "F10",
      "Save pane locations, layout and scale; stop any worker safely and exit.", R_KEY_F10, 0, NULL,
      0},
-    {1, "Scan source", "Ctrl+R",
+    {1, "Refresh this folder", "F9: refresh",
+     "Check this source folder only. Reuse unchanged hashes and verify new or changed entries. "
+     "Folders are also checked automatically when you enter them.",
+     0, 0, "refresh", 0},
+    {1, "Scan entire source", "Ctrl+R",
      "Discover new or changed entries and hash changed files. Source rows appear during "
      "enumeration.",
      0, 0, "scan", 0},
@@ -202,11 +206,13 @@ static const Action actions[] = {
     {6, "Keyboard and safety help", "F1",
      "Show all keyboard shortcuts and the source-data preservation rules in the information panel.",
      0, 0, "help", 0},
-    {6, "Balance and progress", "Ctrl+B",
-     "Calculate retained, rejected and remaining content totals in the background.", 0, 0,
-     "balance", 0},
+    {6, "Statistics / balance", "Ctrl+B",
+     "Show logical size before/after deduplication, saved bytes, remaining data, unscanned files "
+     "and curation progress. Unique* on the status bar means incomplete scan coverage.",
+     0, 0, "balance", 0},
     {6, "Text command", "F9",
-     "Enter scan, fullscan, audit, balance, reconcile, export, history, filter, review, unreview, "
+     "Enter refresh, scan, fullscan, audit, stats, balance, reconcile, export, history, filter, "
+     "review, unreview, "
      "restore, hex, log, logfilter, logfollow, themes, fonts, legend, open, help or scale 200.",
      R_KEY_F9, 0, NULL, 0},
     {6, "File status legend", "",

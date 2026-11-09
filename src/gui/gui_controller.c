@@ -32,7 +32,7 @@ static const char *help_text =
     "Ctrl+R              refresh tree and changed files\n"
     "Ctrl+Shift+R        rehash the entire source\n"
     "Ctrl+A              SHA-512 audit of destination\n"
-    "Ctrl+B              balance and progress\n"
+    "Ctrl+B              deduplication statistics and balance\n"
     "Ctrl+E              find relocated destination files\n"
     "F3                  focus preview; arrows scroll\n"
     "Ctrl+D              focus details and occurrences\n"
@@ -63,7 +63,7 @@ static const char *help_text =
     "Esc                 close dialog / cancel operation\n"
     "F10                 save session and exit\n"
     "\n"
-    "F9: scan, fullscan, audit, balance, reconcile, export,\n"
+    "F9: refresh, scan, fullscan, audit, stats, balance, reconcile, export,\n"
     "history, filter, review, unreview, restore, hex, help, scale 200,\n"
     "log, logfilter, logfollow, themes, fonts, legend, open, sort, reverse.\n"
     "Click a column header to sort; click again to reverse.\n"
@@ -91,7 +91,7 @@ void gui_notice(Gui *ui, const char *s)
 
 void gui_prompt(Gui *ui, int mode, const char *title, const char *text)
 {
-    if (atomic_load(&ui->busy) && (mode == 1 || mode == 2)) {
+    if (gui_operation_busy(ui) && (mode == 1 || mode == 2)) {
         gui_notice(ui, "Wait for the operation to finish.");
         return;
     }
@@ -136,17 +136,25 @@ void gui_command(Gui *ui, const char *s)
         gui_start_job(ui, "scan", NULL, NULL, 0);
     else if (!strcmp(s, "fullscan"))
         gui_start_job(ui, "scan", NULL, NULL, 1);
+    else if (!strcmp(s, "refresh"))
+        gui_refresh_folder(ui);
     else if (!strcmp(s, "audit") || !strcmp(s, "reconcile") || !strcmp(s, "export"))
         gui_start_job(ui, s, NULL, NULL, 0);
-    else if (!strcmp(s, "balance")) {
+    else if (!strcmp(s, "balance") || !strcmp(s, "stats")) {
         free(ui->details);
-        ui->details = xstrdup("Calculating balance in the background...");
+        ui->details = xstrdup(gui_operation_busy(ui)
+                                  ? "Statistics will update after the current operation finishes.\n"
+                                    "You can keep browsing."
+                                  : "Calculating deduplication statistics in the background...\n"
+                                    "This reads the catalog; source files are not rehashed.\n"
+                                    "Large catalogs can take a while. You can keep browsing.");
         ui->details_scroll = 0;
         ui->focus = 3;
         ui->help = 2;
         gui_request_view(ui, VIEW_BALANCE);
     } else if (!strcmp(s, "history")) {
         ui->history = !ui->history;
+        gui_refresh_folder(ui);
         gui_clear_marks(ui->pane + 1);
         ui->pane[1].page = 0;
         gui_pane_reload(ui, 1);

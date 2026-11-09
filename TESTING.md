@@ -3,6 +3,35 @@
 CCurate 0.1.0 plus the Windows port and scan/empty-file fixes, validation updated 7 November 2026.
 Linux remains the primary platform.
 
+## Uncommitted lazy-resume and large-catalog preview (2026-11-09)
+
+`navigation_cache` exercises bounded first-page work before descendant aggregation,
+parent anchors, SQLite commit invalidation after decisions, distinct search/sort/
+history/filter keys, eventual recursive counters and statistics completing during
+repeated navigation. The fixture uses 12,000 descendants and a SQLite instruction
+budget so the first-page check does not rely only on wall-clock timing.
+
+`statistics` covers seven real-file scenarios: duplicate and independent empty
+files, verified copies, rejection/restoration of individual occurrences and whole
+groups, retained older versions, absent source paths, pending observations,
+UNSCANNED paths, incomplete traversal, corrupt destinations and an empty plan.
+Both full and core Linux builds include these CTest cases. The Windows CMake
+selection includes the statistics cases for its next authorized CI build.
+
+`tests/navigation_scale.py` additionally generated a disposable 17-million-file
+catalog for before/after timing. Measurements and limitations are recorded in
+[PREVIEW_NOTES.md](PREVIEW_NOTES.md). These are catalog records, not 17 million
+physical files or a scan of the user's source drive.
+
+The Linux regression set passed all 17 suites: both build configurations' CTests,
+stress, live scan, sorting, production preview suites, desktop opening and all
+eight native-window suites. The new lazy-refresh/navigation/statistics tests also passed with
+AddressSanitizer and UndefinedBehaviorSanitizer. Leak detection was disabled for
+that run because LeakSanitizer cannot operate under this execution environment's
+process tracing; this is not a leak-check result. The Ctrl+B panel was additionally
+opened and visually inspected in a native Raven window.
+
+
 ## Build and core behavior
 
 The graphical/media build and the core-only build pass the 32 black-box
@@ -25,6 +54,25 @@ ctest --test-dir build-core --output-on-failure
 Both configurations create and reopen `.ccurate` sessions. The core-only build
 excludes Raven, Fontconfig, GIO and image/PDF/audio/video decoder dependencies.
 Permission-denied cases require an unprivileged test process.
+
+## Lazy session resume
+
+`tests/lazy_refresh.py` and `refreshcheck` cover new versus existing/incomplete
+catalog startup, unchanged visits with zero hashed bytes and no database-version
+change, direct-child scope, same-size/mtime-preserving edits, hidden files,
+subtree disappearance/reappearance, symlink replacement, failed listings,
+cancellation during a large hash, retained history, pending-group invalidation,
+writer deferral, independent empty files and complete-copy discovery of new
+unvisited descendants. They are part of Linux full/core CTest.
+
+`tests/gui_lazy_refresh.py` opens the native Raven window on a scanned fixture,
+checks that startup does not traverse or hash unvisited folders, then verifies
+updates when entering one folder. F5 must preempt a 64 GiB sparse-file hash and
+copy a different selected file. An explicit full-hash scan must still work.
+Reopening an incomplete inventory must also avoid an automatic tree scan.
+`tests/run_linux.py` includes this suite alongside the existing GUI regressions.
+These are disposable Linux fixtures; they do not substitute for native Windows
+execution or a full live 8 TB drive test. This uncommitted preview has not run CI.
 
 ## Empty files and changing sources
 

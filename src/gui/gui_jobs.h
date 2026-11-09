@@ -6,6 +6,11 @@
 
 void gui_request_preview(Gui *ui, int reset);
 int gui_start_job(Gui *ui, const char *job, const char *a, const char *b, int complete);
+int gui_lazy_active(Gui *ui);
+int gui_operation_busy(Gui *ui);
+void gui_refresh_folder(Gui *ui);
+void gui_jobs_tick(Gui *ui);
+void gui_cancel_job(Gui *ui);
 void gui_copy_selected(Gui *ui, int complete);
 void gui_mark_selected(Gui *ui, const char *action);
 void gui_jobs_start_preview(Gui *ui);

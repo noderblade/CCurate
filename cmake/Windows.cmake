@@ -24,7 +24,7 @@ set(CCURATE_WINDOWS_FILES
  src/platform/windows/preview_windows.c
 )
 add_executable(ccurate WIN32
- src/main.c src/util.c src/activity.c src/catalog.c src/operations.c src/preview.c src/view.c
+ src/main.c src/util.c src/activity.c src/catalog.c src/operations.c src/preview.c src/view.c src/view_cache.c
  src/platform/windows/source_access_windows.c
  src/platform/windows/main_windows.c src/platform/windows/ccurate.rc
  ${CCURATE_WINDOWS_FILES}
@@ -106,3 +106,7 @@ if(CCURATE_MEDIA)
   ${CMAKE_CURRENT_SOURCE_DIR}/tests/windows_previews.py $<TARGET_FILE:previewcheck>)
 endif()
 install(TARGETS ccurate RUNTIME DESTINATION bin)
+
+target_sources(ccurate PRIVATE src/source_refresh.c)
+add_test(NAME statistics COMMAND ${Python3_EXECUTABLE}
+ ${CMAKE_CURRENT_SOURCE_DIR}/tests/statistics.py $<TARGET_FILE:ccurate>)

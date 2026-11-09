@@ -74,7 +74,8 @@ results; they do not start synchronous scans or decode files while drawing.
 | `src/preview.c` | Format decoders and the isolated preview subprocess protocol |
 | `src/preview_jpeg.c` | Direct libjpeg scanline thumbnails and bounded EXIF orientation parsing |
 | `src/desktop_open.c` | Asynchronous GIO launcher subprocess, desktop-user privilege drop and result pipe |
-| `src/view.c` | Background view queries, saved preferences and storage metrics |
+| `src/view.c` | Independent view/statistics readers, saved preferences and storage metrics |
+| `src/view_cache.c` / `include/view_cache.h` | Worker-owned source/history page cache with SQLite commit invalidation |
 | `src/activity.c` | Bounded recent log, asynchronous file writer and log recovery |
 | `src/font_catalog.c` | Fontconfig discovery and asynchronous font-file reads |
 | `src/util.c` | Hashing, filesystem/path helpers and formatting |
@@ -93,6 +94,46 @@ query. The common source/name-sort path counts preceding indexed entries without
 joining all versions; filtered and other column sorts use the listing order.
 No directory search is performed on the Raven thread. Bookmarks are bounded and
 owned/freed with their pane.
+
+The view worker publishes list rows before computing recursive directory totals.
+It completes those counters only after foreground requests and interrupts them
+when a newer selection/navigation request arrives. Completed counters are kept
+with the cached page. The cache has at most 32 pages and 16 MiB of row/string
+payload; keys include path, page, sort, search, history, unsecured and scan mode.
+It checks `PRAGMA data_version` on its own connection before reuse and publication.
+An anchor is reused only when its path exists on the saved page; otherwise the
+normal ranking query resolves it.
+
+`source_refresh.c` / `include/source_refresh.h` implement nonrecursive source
+refresh. Existing-session startup uses an indexed existence check instead of
+starting a tree scan. Navigation schedules one latest folder request; the GUI
+shows catalog rows immediately. The operation worker owns all source-refresh
+writes, just as it owns scans and copies. Manual operations cancel lazy work and
+run next; the Raven thread never waits for a hash or joins an unfinished worker.
+Cancellation is set before launching/superseding work, avoiding a worker-start
+race. Copy preflight expands only the selected directory subtree.
+
+The catalog planner compares observed metadata to the saved current version.
+Unchanged entries require neither data reads nor main-catalog writes. Temporary
+SQLite tables hold the current directory listing and changed-entry queue. New or
+changed observations commit in batches; each verified entry commits separately.
+Pending entries are excluded from live hash groups while accepted old versions
+remain immutable. An interrupted hash rolls back only that entry's verification,
+leaving its committed observation pending. Absence updates follow a successful,
+stable enumeration and use parent-index traversal of removed catalog subtrees;
+SQL cancellation rolls back an unfinished absence update. Full-scan completion
+settings are never reset by a local refresh. Lazy visits do not regenerate JSONL
+or restart whole-catalog statistics when no catalog content changed.
+
+Global statistics have a separate read-only connection and worker. Navigation
+serials do not cancel a whole-drive count; explicit statistics refresh and
+shutdown do. Requests during scan/copy are deferred until operation completion,
+avoiding a long statistics snapshot retaining the scanner's WAL. File-size and
+free-space polling has its own worker and continues during either calculation.
+The estimate uses a consistent read transaction, current eligible regular files,
+and the indexed nonempty content table. Pending observations and errors cannot
+reuse a stale retained hash to reduce estimated space. Empty files remain separate
+metadata-bearing paths and never contribute duplicate savings.
 
 Sorting uses whitelisted SQL expressions and a deterministic filename tie-breaker.
 It runs before LIMIT/OFFSET in the view worker, including destination listings,

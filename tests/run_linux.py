@@ -18,7 +18,8 @@ for script, args in [
     ('preview_limits', ['previewcheck', 'libpreview_policy_probe.so']),
     ('desktop_open', ['ccurate']),
     *[(s, ['ccurate']) for s in ('gui_smoke', 'gui_actions', 'gui_activity', 'gui_fonts',
-                               'gui_navigation_open', 'gui_scroll_sort', 'gui_startup')],
+                               'gui_navigation_open', 'gui_scroll_sort', 'gui_startup',
+                               'gui_lazy_refresh')],
 ]:
     cases.append((script, [sys.executable, f'tests/{script}.py', *[str(full / a) for a in args]]))
 failures = []

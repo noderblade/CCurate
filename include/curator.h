@@ -51,6 +51,7 @@ typedef struct {
     int sfd, dfd, mfd, lockfd, readonly;
     atomic_int cancel;
     atomic_ullong files, bytes;
+    atomic_int refresh_changed;
     ScanProgress scan;
     StorageStatus storage;
     pthread_mutex_t progress_mutex;
@@ -66,6 +67,9 @@ typedef struct {
 typedef struct {
     uint64_t paths, secured, rejected, reviewed, errors, missing, special;
     uint64_t unique, unique_bytes, needed_bytes, free_bytes, total_bytes;
+    uint64_t source_files, source_bytes, hashed_files, hashed_bytes, empty_files;
+    uint64_t unscanned_files, unscanned_bytes, duplicate_files, duplicate_bytes;
+    int valid, traversal_complete;
 } Summary;
 typedef struct {
     uint8_t *rgba;
@@ -88,6 +92,7 @@ typedef struct {
     unsigned flags;
     char *path[2], *search[2], *anchor[2], *detail_path;
     int page[2], sort[2], historical, unsecured, fast, target_refresh, occurrence_page;
+    int refresh_summary;
     int64_t detail_version;
 } ViewRequest;
 typedef struct {
@@ -175,6 +180,10 @@ int load_version(Catalog *c, const char *path, int64_t version, Entry *out);
 void preserve_parents(Catalog *c, const char *path);
 int list_entries(Catalog *c, const char *path, Entry **out, int historical, int unsecured,
                  const char *search);
+int entry_directory_totals(Catalog *c, Entry *entry);
+int list_entries_page_deferred(Catalog *c, const char *path, Entry **out, int historical,
+                               int unsecured, const char *search, int page, int limit, int fast,
+                               int sort, int64_t *total);
 int list_entries_page(Catalog *c, const char *path, Entry **out, int historical, int unsecured,
                       const char *search, int page, int limit, int fast, int sort, int64_t *total);
 int64_t count_entries(Catalog *c, const char *path, int historical, int unsecured,
@@ -188,6 +197,7 @@ char *entry_details_page(Catalog *c, const Entry *e, int page);
 int prepare_hash_groups(Catalog *c);
 void catalog_summary(Catalog *c, Summary *s);
 char *summary_text(Catalog *c);
+char *summary_format(const Summary *summary);
 int mark_entries(Catalog *c, const char *path, const char *action);
 int copy_entry(Catalog *c, const char *source, const char *target_dir, int complete);
 int move_target(Catalog *c, const char *from, const char *to);

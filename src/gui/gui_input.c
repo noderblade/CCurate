@@ -202,7 +202,7 @@ int gui_handle_event(Gui *ui, const REvent *e)
     }
     if (k == R_KEY_ESCAPE) {
         if (atomic_load(&ui->busy)) {
-            atomic_store(&ui->c->cancel, 1);
+            gui_cancel_job(ui);
             gui_notice(ui, "Cancelling; completed and verified copies remain saved.");
         } else {
             ui->focus = 1;

@@ -1,4 +1,5 @@
 #include "curator.h"
+#include "source_refresh.h"
 #ifdef CCURATE_GUI
 #include "desktop_open.h"
 #include "gui.h"
@@ -34,13 +35,14 @@ static void usage(void)
          "CLI:     ccurate --cli SOURCE DESTINATION COMMAND [ARG...]\n"
          "Commands:\n"
          "  scan [--full]                 refresh live source (SHA-512)\n"
+         "  refresh [SOURCE_DIR]          check one folder; hash changed files only\n"
          "  copy SOURCE_REL TARGET_DIR [--complete]\n"
          "  review|unreview|reject|restore SOURCE_REL\n"
          "  mkdir TARGET_REL             create destination directory\n"
          "  move OLD_TARGET_REL NEW_TARGET_REL\n"
          "  list [SOURCE_DIR] [--history] [--unsecured]\n"
          "  info SOURCE_REL              locations / duplicates / versions\n"
-         "  audit | reconcile | balance | export\n"
+         "  audit | reconcile | stats | balance | export\n"
          "  import MANIFEST.jsonl        rebuild an EMPTY catalog\n"
          "Use '-' as SOURCE for offline archive operations.\n"
          "Paths passed to commands are relative; empty directory is ''.\n"
@@ -153,6 +155,8 @@ int main(int argc, char **argv)
 #endif
     } else if (!strcmp(cmd, "scan"))
         rc = scan_source(&c, argc > arg && !strcmp(argv[arg], "--full"));
+    else if (!strcmp(cmd, "refresh"))
+        rc = refresh_directory(&c, argc > arg ? argv[arg] : "");
     else if (!strcmp(cmd, "copy") && argc >= arg + 2)
         rc = copy_entry(&c, argv[arg], argv[arg + 1],
                         argc > arg + 2 && !strcmp(argv[arg + 2], "--complete"));
@@ -175,7 +179,7 @@ int main(int argc, char **argv)
         rc = export_archive(&c);
     else if (!strcmp(cmd, "import") && argc > arg)
         rc = import_archive(&c, argv[arg]);
-    else if (!strcmp(cmd, "balance")) {
+    else if (!strcmp(cmd, "balance") || !strcmp(cmd, "stats")) {
         char *s = summary_text(&c);
         puts(s);
         free(s);

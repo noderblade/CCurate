@@ -36,16 +36,19 @@ with tempfile.TemporaryDirectory(prefix='ccurate-new-ui-') as t:
      if time.monotonic()>end: snap('ERROR-timeout'); raise AssertionError('Operation timeout')
      time.sleep(.05)
     time.sleep(.15)
+   def focus_window():
+    global win
+    win=xd('search','--onlyvisible','--name','CCurate').splitlines()[-1]
+    xd('windowfocus',win); xd('windowsize',win,1920,1200)
+    return win
    def sql(q):
     with sqlite3.connect(dst/'.ccurate/catalog.sqlite',timeout=.2) as db: return db.execute(q).fetchone()
    def setting(key): return sql("select value from settings where key='"+key+"'")[0]
    log=dst/'.ccurate/activity.log'
-   until(lambda: xd('search','--name','CCurate'))
-   win=xd('search','--name','CCurate').splitlines()[-1]
-   xd('windowfocus',win); xd('windowsize',win,1920,1200)
+   until(focus_window)
    until(lambda: 'operation.finish' in log.read_text()); time.sleep(.6)
    def click(x,y): xd('mousemove',x,y); xd('click',1); time.sleep(.2)
-   counts=[8,6,16,8,8,8,4]
+   counts=[8,7,18,8,8,8,4]
    def menu(group,row):
     click(12+(group+1.5)*237,1180)
     h=42+counts[group]*29+100
@@ -54,11 +57,14 @@ with tempfile.TemporaryDirectory(prefix='ccurate-new-ui-') as t:
     click(px,y)
    click(1080,230)
    until(lambda: 'Preview 500 x 800' in log.read_text())
-   im=snap('01-oriented-jpeg')
-   crop=im.crop((20,710,940,1140))
-   pixels=getattr(crop,'get_flattened_data',crop.getdata)()
-   green=sum(1 for r,g,b in pixels if g>140 and r<60 and b<130)
-   assert green>20000,green
+   # Decoder completion precedes the renderer consuming its result. Wait for
+   # the actual frame instead of assuming a fixed delay is enough under load.
+   def preview_visible():
+    crop=ImageGrab.grab(xdisplay=env['DISPLAY']).crop((20,710,940,1140))
+    pixels=getattr(crop,'get_flattened_data',crop.getdata)()
+    return sum(1 for r,g,b in pixels if g>140 and r<60 and b<130)>20000
+   until(preview_visible)
+   snap('01-oriented-jpeg')
    xd('mousemove',1080,255); time.sleep(1.3); xd('key','F5')
    until(lambda: (dst/'a-photo.jpg').exists())
    assert not (dst/'b-text.txt').exists(),'Hover changed source selection'
@@ -99,8 +105,7 @@ with tempfile.TemporaryDirectory(prefix='ccurate-new-ui-') as t:
    xd('key','F10'); p.wait(timeout=20); assert p.returncode==0
    before=log.read_bytes()
    p=sp.Popen([app,'--browse',dst],env=env,stdout=al,stderr=al)
-   until(lambda: xd('search','--name','CCurate'))
-   win=xd('search','--name','CCurate').splitlines()[-1]; xd('windowfocus',win); xd('windowsize',win,1920,1200); time.sleep(.7)
+   until(focus_window); time.sleep(.7)
    assert setting('ui.theme')=='9' and setting('ui.log.visible')=='1' and setting('ui.split.log')=='0.3000'
    assert log.read_bytes().startswith(before)
    snap('10-restored-theme-log-layout'); xd('key','F10'); p.wait(timeout=20); assert p.returncode==0

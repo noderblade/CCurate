@@ -38,9 +38,10 @@ void gui_request_view(Gui *ui, unsigned flags)
     ui->view_dirty |= flags;
     Entry *e = gui_selected(ui->pane + 1);
     ViewRequest r = {.flags = ui->view_dirty,
+                     .refresh_summary = !!(flags & (VIEW_SUMMARY | VIEW_BALANCE)),
                      .historical = ui->history,
                      .unsecured = ui->filter,
-                     .fast = atomic_load(&ui->busy),
+                     .fast = gui_operation_busy(ui),
                      .target_refresh = ui->target_refresh,
                      .occurrence_page = ui->occurrence_page,
                      .detail_path = e ? e->path : "",
@@ -268,6 +269,8 @@ void gui_navigate(Gui *ui, int side, const char *path)
     free(p->path);
     p->path = destination;
     p->total = 0;
+    if (side)
+        gui_refresh_folder(ui);
     gui_pane_reload(ui, side);
     if (side)
         gui_request_preview(ui, 1);

@@ -62,6 +62,8 @@ struct Gui {
     atomic_int busy, finished;
     char *job, *arg1, *arg2, **selections;
     int selection_count, complete, job_result;
+    char *next_job, *next_arg1, *next_arg2, *lazy_path;
+    int next_complete;
     pthread_t preview_thread;
     pthread_mutex_t pm;
     pthread_cond_t pc;

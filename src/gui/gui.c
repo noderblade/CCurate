@@ -11,6 +11,7 @@
 #include "gui_render.h"
 #include "gui_state.h"
 #include "gui_theme.h"
+#include "source_refresh.h"
 #include <math.h>
 #include <stdlib.h>
 #include <string.h>
@@ -221,10 +222,20 @@ int gui_main(Catalog *c, int historical)
         sqlite3_close(ui->reader.db);
         return fail(c, "Cannot start view worker");
     }
-    /* Set busy before submitting initial views: the scan owns occurrence-cache
-     * preparation, and initial listing requests must use the live/fast path. */
-    if (!historical)
+    /* Only a new catalog needs an automatic whole-tree inventory. Existing
+     * sessions display saved pages immediately and refresh the visited folder. */
+    if (!historical && source_needs_initial_scan(&ui->reader))
         gui_start_job(ui, "scan", NULL, NULL, 0);
+    else if (!historical) {
+        gui_refresh_folder(ui);
+        char *complete = setting(&ui->reader, "scan_complete", "0");
+        gui_notice(
+            ui, !strcmp(complete, "1")
+                    ? "Saved catalog loaded. Folders are checked as you browse; Ctrl+R scans all."
+                    : "Saved catalog loaded; last full traversal was incomplete. Ctrl+R resumes "
+                      "discovery.");
+        free(complete);
+    }
     gui_pane_reload(ui, 0);
     gui_pane_reload(ui, 1);
     gui_request_view(ui, VIEW_SUMMARY);
@@ -241,20 +252,27 @@ int gui_main(Catalog *c, int historical)
         cc_win_startup_ready();
 #endif
         if (atomic_load(&ui->finished)) {
+            int lazy = gui_lazy_active(ui);
             pthread_join(ui->worker, NULL);
             atomic_store(&ui->finished, 0);
             atomic_store(&ui->busy, 0);
-            char *s = ui->job_result ? fmt("Operation needs attention: %s",
-                                           *c->error ? c->error : "check the audit")
-                                     : fmt("Completed: %s", ui->job);
+            char *s = lazy && atomic_load(&c->cancel)
+                          ? xstrdup("Folder refresh stopped; saved catalog remains available.")
+                      : ui->job_result ? fmt("Operation needs attention: %s",
+                                             *c->error ? c->error : "check the audit")
+                                       : fmt("Completed: %s", ui->job);
             gui_notice(ui, s);
             free(s);
-            ui->target_refresh = 1;
-            gui_pane_reload(ui, 0);
+            if (!lazy) {
+                ui->target_refresh = 1;
+                gui_pane_reload(ui, 0);
+            }
             gui_pane_reload(ui, 1);
-            gui_request_view(ui, VIEW_SUMMARY | VIEW_DETAILS);
+            gui_request_view(
+                ui, VIEW_DETAILS | (!lazy || atomic_load(&c->refresh_changed) ? VIEW_SUMMARY : 0));
             gui_save_ui(ui);
         }
+        gui_jobs_tick(ui);
         gui_apply_view(ui);
         gui_open_tick(ui);
         scan_status(c, &ui->scan);
@@ -276,8 +294,12 @@ int gui_main(Catalog *c, int historical)
         }
         pthread_mutex_unlock(&ui->pm);
         double now = Rget_time();
-        if (now - last_refresh > 1 && !view_busy(ui->view) && !ui->view_dirty) {
-            if (atomic_load(&ui->busy) && ui->job && !strcmp(ui->job, "scan") &&
+        /* A long statistics/counter query must not hide newly committed folder
+         * observations. Wait only for the preceding list request; replacing
+         * that request mid-query would starve expensive sorts. */
+        if (now - last_refresh > 1 && !(ui->view_dirty & VIEW_RIGHT)) {
+            if (atomic_load(&ui->busy) && ui->job &&
+                (!strcmp(ui->job, "scan") || !strcmp(ui->job, "refresh")) &&
                 (ui->scan.phase == SCAN_ENUMERATE || ui->scan.phase == SCAN_HASH))
                 gui_pane_reload(ui, 1);
             last_refresh = now;
@@ -296,8 +318,8 @@ int gui_main(Catalog *c, int historical)
         }
         Rwidget_invalidate(ui->canvas);
     }
+    gui_cancel_job(ui);
     if (atomic_load(&ui->busy)) {
-        atomic_store(&c->cancel, 1);
         pthread_join(ui->worker, NULL);
     }
     gui_save_ui(ui);

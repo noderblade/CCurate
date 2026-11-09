@@ -2,6 +2,7 @@
 #include "gui_browser.h"
 #include "gui_controller.h"
 #include "gui_state.h"
+#include "source_refresh.h"
 #include <errno.h>
 #include <fcntl.h>
 #include <stdlib.h>
@@ -109,7 +110,6 @@ static void *gui_job_run(void *data)
 {
     Gui *ui = data;
     int rc = 0;
-    atomic_store(&ui->c->cancel, 0);
     atomic_store(&ui->c->files, 0);
     atomic_store(&ui->c->bytes, 0);
     ui->c->error[0] = 0;
@@ -118,10 +118,16 @@ static void *gui_job_run(void *data)
     activity_log(ui->c, LOG_INFO, "operation.start", ui->arg1, ui->arg2, "%s", ui->job);
     if (!strcmp(ui->job, "scan"))
         rc = scan_source(ui->c, ui->complete);
+    else if (!strcmp(ui->job, "refresh"))
+        rc = refresh_directory(ui->c, ui->arg1);
     else if (!strcmp(ui->job, "copy")) {
-        for (int i = 0; i < ui->selection_count && !atomic_load(&ui->c->cancel); i++)
-            if ((rc = copy_entry(ui->c, ui->selections[i], ui->arg2, ui->complete)))
+        for (int i = 0; i < ui->selection_count && !atomic_load(&ui->c->cancel); i++) {
+            rc = refresh_copy_source(ui->c, ui->selections[i]);
+            if (!rc)
+                rc = copy_entry(ui->c, ui->selections[i], ui->arg2, ui->complete);
+            if (rc)
                 break;
+        }
     } else if (!strcmp(ui->job, "move"))
         rc = move_target(ui->c, ui->arg1, ui->arg2);
     else if (!strcmp(ui->job, "mkdir")) {
@@ -156,6 +162,15 @@ static void *gui_job_run(void *data)
 int gui_start_job(Gui *ui, const char *job, const char *a, const char *b, int complete)
 {
     if (atomic_load(&ui->busy)) {
+        if (gui_lazy_active(ui) && !ui->next_job) {
+            ui->next_job = xstrdup(job);
+            ui->next_arg1 = xstrdup(a);
+            ui->next_arg2 = xstrdup(b);
+            ui->next_complete = complete;
+            atomic_store(&ui->c->cancel, 1);
+            gui_notice(ui, "Stopping folder refresh; your operation will start next.");
+            return 0;
+        }
         gui_notice(ui, "Operation in progress. Esc cancels it and keeps completed copies.");
         return -1;
     }
@@ -168,9 +183,66 @@ int gui_start_job(Gui *ui, const char *job, const char *a, const char *b, int co
     ui->complete = complete;
     atomic_store(&ui->busy, 1);
     atomic_store(&ui->finished, 0);
-    pthread_create(&ui->worker, NULL, gui_job_run, ui);
-    gui_notice(ui, "Working in the background; you can keep browsing.");
+    atomic_store(&ui->c->cancel, 0);
+    int error = pthread_create(&ui->worker, NULL, gui_job_run, ui);
+    if (error) {
+        atomic_store(&ui->busy, 0);
+        gui_notice(ui, "Cannot start operation worker. See Activity.");
+        activity_log(ui->c, LOG_ERROR, "operation.thread", NULL, NULL, "%s", strerror(error));
+        return -1;
+    }
+    gui_notice(ui, !strcmp(job, "refresh")
+                       ? "Checking this folder in the background; saved catalog is available."
+                       : "Working in the background; you can keep browsing.");
     return 0;
+}
+
+int gui_lazy_active(Gui *ui)
+{
+    return atomic_load(&ui->busy) && ui->job && !strcmp(ui->job, "refresh");
+}
+
+int gui_operation_busy(Gui *ui)
+{
+    return ui->next_job || (atomic_load(&ui->busy) && !gui_lazy_active(ui));
+}
+
+void gui_refresh_folder(Gui *ui)
+{
+    free(ui->lazy_path);
+    ui->lazy_path = ui->history || ui->c->readonly ? NULL : xstrdup(ui->pane[1].path);
+    if (gui_lazy_active(ui))
+        atomic_store(&ui->c->cancel, 1);
+}
+
+void gui_cancel_job(Gui *ui)
+{
+    free(ui->next_job);
+    free(ui->next_arg1);
+    free(ui->next_arg2);
+    free(ui->lazy_path);
+    ui->next_job = ui->next_arg1 = ui->next_arg2 = ui->lazy_path = NULL;
+    if (atomic_load(&ui->busy))
+        atomic_store(&ui->c->cancel, 1);
+}
+
+void gui_jobs_tick(Gui *ui)
+{
+    if (atomic_load(&ui->busy))
+        return;
+    if (ui->next_job) {
+        char *job = ui->next_job, *a = ui->next_arg1, *b = ui->next_arg2;
+        ui->next_job = ui->next_arg1 = ui->next_arg2 = NULL;
+        gui_start_job(ui, job, a, b, ui->next_complete);
+        free(job);
+        free(a);
+        free(b);
+    } else if (ui->lazy_path && !ui->history) {
+        char *path = ui->lazy_path;
+        ui->lazy_path = NULL;
+        gui_start_job(ui, "refresh", path, NULL, 0);
+        free(path);
+    }
 }
 
 static void gui_collect_selection(Gui *ui)
@@ -196,7 +268,7 @@ static void gui_collect_selection(Gui *ui)
 
 void gui_copy_selected(Gui *ui, int complete)
 {
-    if (atomic_load(&ui->busy)) {
+    if (gui_operation_busy(ui)) {
         gui_notice(ui, "Wait for the operation to finish or press Esc.");
         return;
     }
@@ -211,7 +283,7 @@ void gui_copy_selected(Gui *ui, int complete)
 
 void gui_mark_selected(Gui *ui, const char *action)
 {
-    if (atomic_load(&ui->busy)) {
+    if (gui_operation_busy(ui)) {
         gui_notice(ui, "Operation in progress; marking is available when it finishes.");
         return;
     }

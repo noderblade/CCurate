@@ -1,6 +1,7 @@
 /* All catalog queries, directory IO and UI-setting writes are off the Raven thread.
  * Latest-request-wins cancellation prevents stale results replacing a newer view. */
 #include "curator.h"
+#include "view_cache.h"
 #include <dirent.h>
 #include <fcntl.h>
 #include <stdlib.h>
@@ -15,19 +16,28 @@ enum { VIEW_SETTING_COUNT = 21 };
 
 struct ViewService {
     Catalog reader;
+    Catalog statistics_reader;
     pthread_t thread;
-    pthread_t metrics_thread;
+    pthread_t metrics_thread, statistics_thread;
     Catalog *owner;
     pthread_mutex_t mutex;
-    pthread_cond_t cond;
+    pthread_cond_t cond, statistics_cond;
     atomic_int stop, running;
     atomic_ullong serial;
     uint64_t executing;
     ViewRequest *pending;
     ViewResult *ready;
+    ViewResult *statistics_ready;
+    unsigned statistics_wanted;
+    int statistics_running;
+    atomic_ullong statistics_serial;
+    uint64_t statistics_executing;
     char *save[VIEW_SETTING_COUNT];
     int save_pending;
     char *target_cache;
+    ViewCache *source_cache;
+    Summary summary_cache;
+    int64_t summary_version;
 };
 static void request_free(ViewRequest *r)
 {
@@ -57,9 +67,34 @@ static int interrupted(void *arg)
     ViewService *s = arg;
     return atomic_load(&s->stop) || atomic_load(&s->serial) != s->executing;
 }
+static int statistics_interrupted(void *arg)
+{
+    ViewService *s = arg;
+    return atomic_load(&s->stop) || atomic_load(&s->statistics_serial) != s->statistics_executing;
+}
 static int last_page(int64_t total)
 {
     return total > 0 ? (int)((total - 1) / VIEW_PAGE_SIZE) : 0;
+}
+static void view_summary(ViewService *s, Summary *summary)
+{
+    Catalog *c = &s->statistics_reader;
+    sqlite3_stmt *q = sql_prepare(c, "PRAGMA data_version");
+    int64_t version = q && sqlite3_step(q) == SQLITE_ROW ? sqlite3_column_int64(q, 0) : -1;
+    sqlite3_finalize(q);
+    if (version >= 0 && s->summary_cache.valid && version == s->summary_version) {
+        *summary = s->summary_cache;
+        summary->free_bytes = atomic_load(&s->owner->storage.free_bytes);
+        return;
+    }
+    catalog_summary(c, summary);
+    q = sql_prepare(c, "PRAGMA data_version");
+    int64_t after = q && sqlite3_step(q) == SQLITE_ROW ? sqlite3_column_int64(q, 0) : -1;
+    sqlite3_finalize(q);
+    if (summary->valid && version >= 0 && version == after) {
+        s->summary_cache = *summary;
+        s->summary_version = version;
+    }
 }
 static char *target_order(int sort)
 {
@@ -229,7 +264,7 @@ static ViewResult *query(ViewService *s, ViewRequest *r)
         return out;
     if (r->flags & VIEW_LEFT)
         target_rows(s, r, out);
-    if (!interrupted(s) && (r->flags & VIEW_RIGHT)) {
+    if (!interrupted(s) && (r->flags & VIEW_RIGHT) && !view_cache_load(s->source_cache, r, out)) {
         out->total[1] =
             count_entries(c, r->path[1], r->historical, r->unsecured, r->search[1], r->fast);
         int page = r->page[1], last = last_page(out->total[1]);
@@ -243,10 +278,14 @@ static ViewResult *query(ViewService *s, ViewRequest *r)
             page = last;
         out->page[1] = page;
         if (!interrupted(s))
-            out->count[1] =
-                list_entries_page(c, r->path[1], out->rows + 1, r->historical, r->unsecured,
-                                  r->search[1], page, VIEW_PAGE_SIZE, r->fast, r->sort[1], NULL);
+            out->count[1] = list_entries_page_deferred(c, r->path[1], out->rows + 1, r->historical,
+                                                       r->unsecured, r->search[1], page,
+                                                       VIEW_PAGE_SIZE, r->fast, r->sort[1], NULL);
+        if (!interrupted(s))
+            view_cache_store(s->source_cache, c, r, out);
     }
+    if (r->flags & VIEW_RIGHT)
+        r->page[1] = out->page[1];
     if (!interrupted(s) && (r->flags & VIEW_CYCLE) && *r->detail_path) {
         sqlite3_stmt *q = sql_prepare(
             c, "SELECT COALESCE(MAX(CASE WHEN v.id<? THEN v.id END),MAX(v.id)) "
@@ -268,10 +307,6 @@ static ViewResult *query(ViewService *s, ViewRequest *r)
             entry_free(&e);
         }
     }
-    if (!interrupted(s) && (r->flags & VIEW_SUMMARY))
-        catalog_summary(c, &out->summary);
-    if (!interrupted(s) && (r->flags & VIEW_BALANCE))
-        out->balance = summary_text(c);
     return out;
 }
 static int save_settings(ViewService *s, char **values)
@@ -294,6 +329,48 @@ static int save_settings(ViewService *s, char **values)
         activity_log(&s->reader, LOG_DEBUG, "settings.saved", NULL, NULL,
                      "Pane locations, scale, font, theme and layout saved");
     return rc;
+}
+static void publish(ViewService *s, ViewResult *out)
+{
+    ViewResult *old = NULL;
+    pthread_mutex_lock(&s->mutex);
+    if (!interrupted(s)) {
+        if (s->ready && s->ready->serial == out->serial) {
+            ViewResult *dest = s->ready;
+            dest->flags |= out->flags;
+            for (int j = 0; j < 2; j++)
+                if (out->flags & (j ? VIEW_RIGHT : VIEW_LEFT)) {
+                    entries_free(dest->rows[j], dest->count[j]);
+                    dest->rows[j] = out->rows[j];
+                    dest->count[j] = out->count[j];
+                    dest->page[j] = out->page[j];
+                    dest->total[j] = out->total[j];
+                    out->rows[j] = NULL;
+                    out->count[j] = 0;
+                }
+            if (out->flags & VIEW_SUMMARY)
+                dest->summary = out->summary;
+            if (out->details) {
+                dest->details = out->details;
+                out->details = NULL;
+            }
+            if (out->balance) {
+                dest->balance = out->balance;
+                out->balance = NULL;
+            }
+            if (out->cycle.path) {
+                dest->cycle = out->cycle;
+                memset(&out->cycle, 0, sizeof(out->cycle));
+            }
+        } else {
+            old = s->ready;
+            s->ready = out;
+            out = NULL;
+        }
+    }
+    pthread_mutex_unlock(&s->mutex);
+    view_result_free(old);
+    view_result_free(out);
 }
 static void *run(void *arg)
 {
@@ -340,55 +417,45 @@ static void *run(void *arg)
             break;
         }
         if (r) {
-            const unsigned order[] = {VIEW_LEFT,    VIEW_RIGHT,   VIEW_CYCLE,
-                                      VIEW_DETAILS, VIEW_SUMMARY, VIEW_BALANCE};
+            view_cache_refresh(s->source_cache, &s->reader);
+            const unsigned order[] = {VIEW_LEFT, VIEW_RIGHT, VIEW_CYCLE, VIEW_DETAILS};
             unsigned wanted = r->flags;
             for (unsigned i = 0; i < sizeof(order) / sizeof(order[0]) && !interrupted(s); i++) {
                 if (!(wanted & order[i]))
                     continue;
                 sqlite3_progress_handler(s->reader.db, 1000, interrupted, s);
                 r->flags = order[i];
-                ViewResult *out = query(s, r), *old = NULL;
+                ViewResult *out = query(s, r);
                 /* No request may hand a transaction/lock to the next request or
                  * to the settings writer. Cleanup is deliberately not cancellable. */
                 sqlite3_progress_handler(s->reader.db, 0, NULL, NULL);
                 sql_rollback(&s->reader);
-                pthread_mutex_lock(&s->mutex);
-                if (!interrupted(s)) {
-                    if (s->ready && s->ready->serial == out->serial) {
-                        ViewResult *dest = s->ready;
-                        dest->flags |= out->flags;
-                        for (int j = 0; j < 2; j++)
-                            if (out->flags & (j ? VIEW_RIGHT : VIEW_LEFT)) {
-                                dest->rows[j] = out->rows[j];
-                                dest->count[j] = out->count[j];
-                                dest->page[j] = out->page[j];
-                                dest->total[j] = out->total[j];
-                                out->rows[j] = NULL;
-                                out->count[j] = 0;
-                            }
-                        if (out->flags & VIEW_SUMMARY)
-                            dest->summary = out->summary;
-                        if (out->details) {
-                            dest->details = out->details;
-                            out->details = NULL;
-                        }
-                        if (out->balance) {
-                            dest->balance = out->balance;
-                            out->balance = NULL;
-                        }
-                        if (out->cycle.path) {
-                            dest->cycle = out->cycle;
-                            memset(&out->cycle, 0, sizeof(out->cycle));
-                        }
-                    } else {
-                        old = s->ready;
-                        s->ready = out;
+                publish(s, out);
+            }
+            if (!interrupted(s) && !r->fast) {
+                ViewResult *out = xmalloc(sizeof(*out));
+                out->serial = s->executing;
+                out->flags = VIEW_RIGHT;
+                if (view_cache_load(s->source_cache, r, out)) {
+                    int changed = 0;
+                    sqlite3_progress_handler(s->reader.db, 1000, interrupted, s);
+                    for (int j = 0; j < out->count[1] && !interrupted(s); j++) {
+                        Entry *e = &out->rows[1][j];
+                        if (strcmp(e->kind, "directory") || e->children >= 0)
+                            continue;
+                        if (entry_directory_totals(&s->reader, e))
+                            break;
+                        changed = 1;
+                    }
+                    sqlite3_progress_handler(s->reader.db, 0, NULL, NULL);
+                    if (changed) {
+                        /* Completed counters survive cancellation by a newer selection.
+                         * A new SQLite data version still invalidates the whole page. */
+                        view_cache_store(s->source_cache, &s->reader, r, out);
+                        publish(s, out);
                         out = NULL;
                     }
                 }
-                pthread_mutex_unlock(&s->mutex);
-                view_result_free(old);
                 view_result_free(out);
             }
             request_free(r);
@@ -424,6 +491,43 @@ static void *metrics(void *arg)
     }
     return NULL;
 }
+static void *statistics(void *arg)
+{
+    ViewService *s = arg;
+    for (;;) {
+        pthread_mutex_lock(&s->mutex);
+        while (!s->statistics_wanted && !atomic_load(&s->stop))
+            pthread_cond_wait(&s->statistics_cond, &s->mutex);
+        if (atomic_load(&s->stop)) {
+            pthread_mutex_unlock(&s->mutex);
+            break;
+        }
+        unsigned wanted = s->statistics_wanted;
+        s->statistics_wanted = 0;
+        s->statistics_running = !!wanted;
+        s->statistics_executing = atomic_load(&s->statistics_serial);
+        pthread_mutex_unlock(&s->mutex);
+        if (wanted) {
+            ViewResult *out = xmalloc(sizeof(*out));
+            out->flags = VIEW_SUMMARY | VIEW_BALANCE;
+            sqlite3_progress_handler(s->statistics_reader.db, 1000, statistics_interrupted, s);
+            view_summary(s, &out->summary);
+            sqlite3_progress_handler(s->statistics_reader.db, 0, NULL, NULL);
+            sql_rollback(&s->statistics_reader);
+            out->balance = summary_format(&out->summary);
+            pthread_mutex_lock(&s->mutex);
+            if (!statistics_interrupted(s)) {
+                view_result_free(s->statistics_ready);
+                s->statistics_ready = out;
+                out = NULL;
+            }
+            s->statistics_running = 0;
+            pthread_mutex_unlock(&s->mutex);
+            view_result_free(out);
+        }
+    }
+    return NULL;
+}
 ViewService *view_start(Catalog *c)
 {
     ViewService *s = xmalloc(sizeof(*s));
@@ -437,6 +541,7 @@ ViewService *view_start(Catalog *c)
     pthread_mutex_init(&s->reader.progress_mutex, NULL);
     pthread_mutex_init(&s->mutex, NULL);
     pthread_cond_init(&s->cond, NULL);
+    pthread_cond_init(&s->statistics_cond, NULL);
     char *path = join_path(c->state_dir, "catalog.sqlite");
     int rc =
         sqlite3_open_v2(path, &s->reader.db, SQLITE_OPEN_READWRITE | SQLITE_OPEN_FULLMUTEX, NULL);
@@ -448,7 +553,27 @@ ViewService *view_start(Catalog *c)
     }
     sqlite3_busy_timeout(s->reader.db, 20);
     sql_exec(&s->reader, "PRAGMA temp_store=FILE; PRAGMA cache_size=-16384;");
+    s->statistics_reader.dfd = c->dfd;
+    s->statistics_reader.log = c->log;
+    pthread_mutex_init(&s->statistics_reader.progress_mutex, NULL);
+    path = join_path(c->state_dir, "catalog.sqlite");
+    rc = sqlite3_open_v2(path, &s->statistics_reader.db,
+                         SQLITE_OPEN_READONLY | SQLITE_OPEN_FULLMUTEX, NULL);
+    free(path);
+    if (rc != SQLITE_OK) {
+        sqlite3_close(s->statistics_reader.db);
+        sqlite3_close(s->reader.db);
+        pthread_mutex_destroy(&s->statistics_reader.progress_mutex);
+        free(s);
+        return NULL;
+    }
+    sqlite3_busy_timeout(s->statistics_reader.db, 20);
+    sql_exec(&s->statistics_reader, "PRAGMA temp_store=FILE; PRAGMA cache_size=-16384;");
+    s->source_cache = view_cache_create();
     if (pthread_create(&s->thread, NULL, run, s)) {
+        view_cache_free(s->source_cache);
+        sqlite3_close(s->statistics_reader.db);
+        pthread_mutex_destroy(&s->statistics_reader.progress_mutex);
         sqlite3_close(s->reader.db);
         free(s);
         return NULL;
@@ -459,7 +584,28 @@ ViewService *view_start(Catalog *c)
         pthread_cond_signal(&s->cond);
         pthread_mutex_unlock(&s->mutex);
         pthread_join(s->thread, NULL);
+        view_cache_free(s->source_cache);
+        sqlite3_close(s->statistics_reader.db);
+        pthread_mutex_destroy(&s->statistics_reader.progress_mutex);
         sqlite3_close(s->reader.db);
+        free(s);
+        return NULL;
+    }
+    if (pthread_create(&s->statistics_thread, NULL, statistics, s)) {
+        atomic_store(&s->stop, 1);
+        pthread_mutex_lock(&s->mutex);
+        pthread_cond_signal(&s->cond);
+        pthread_mutex_unlock(&s->mutex);
+        pthread_join(s->thread, NULL);
+        pthread_join(s->metrics_thread, NULL);
+        view_cache_free(s->source_cache);
+        sqlite3_close(s->reader.db);
+        sqlite3_close(s->statistics_reader.db);
+        pthread_mutex_destroy(&s->reader.progress_mutex);
+        pthread_mutex_destroy(&s->statistics_reader.progress_mutex);
+        pthread_mutex_destroy(&s->mutex);
+        pthread_cond_destroy(&s->cond);
+        pthread_cond_destroy(&s->statistics_cond);
         free(s);
         return NULL;
     }
@@ -476,6 +622,25 @@ uint64_t view_submit(ViewService *s, const ViewRequest *request)
     }
     r->detail_path = xstrdup(request->detail_path);
     pthread_mutex_lock(&s->mutex);
+    unsigned statistics = r->flags & (VIEW_SUMMARY | VIEW_BALANCE);
+    if (r->fast && (s->statistics_running || s->statistics_wanted)) {
+        /* Do not pin a large read snapshot/WAL while a scan or copy is writing.
+         * The GUI requests fresh totals again after the operation completes. */
+        atomic_fetch_add(&s->statistics_serial, 1);
+        s->statistics_wanted = 0;
+    }
+    if (statistics && !r->fast) {
+        if (r->refresh_summary) {
+            atomic_fetch_add(&s->statistics_serial, 1);
+            view_result_free(s->statistics_ready);
+            s->statistics_ready = NULL;
+            s->statistics_wanted |= statistics;
+        } else if (!s->statistics_running && !s->statistics_ready)
+            s->statistics_wanted |= statistics;
+    }
+    if (s->statistics_wanted)
+        pthread_cond_signal(&s->statistics_cond);
+    r->flags &= ~(VIEW_SUMMARY | VIEW_BALANCE);
     request_free(s->pending);
     s->pending = r;
     uint64_t serial = atomic_fetch_add(&s->serial, 1) + 1;
@@ -488,6 +653,12 @@ ViewResult *view_take(ViewService *s)
     pthread_mutex_lock(&s->mutex);
     ViewResult *r = s->ready;
     s->ready = NULL;
+    if (!r && s->statistics_ready) {
+        r = s->statistics_ready;
+        s->statistics_ready = NULL;
+        /* Global totals belong to the session, not to a directory-selection serial. */
+        r->serial = atomic_load(&s->serial);
+    }
     pthread_mutex_unlock(&s->mutex);
     return r;
 }
@@ -532,17 +703,24 @@ void view_stop(ViewService *s)
     atomic_store(&s->stop, 1);
     pthread_mutex_lock(&s->mutex);
     pthread_cond_signal(&s->cond);
+    pthread_cond_signal(&s->statistics_cond);
     pthread_mutex_unlock(&s->mutex);
     pthread_join(s->thread, NULL);
     pthread_join(s->metrics_thread, NULL);
+    pthread_join(s->statistics_thread, NULL);
     request_free(s->pending);
     view_result_free(s->ready);
+    view_result_free(s->statistics_ready);
     for (int i = 0; i < VIEW_SETTING_COUNT; i++)
         free(s->save[i]);
     free(s->target_cache);
+    view_cache_free(s->source_cache);
     sqlite3_close(s->reader.db);
+    sqlite3_close(s->statistics_reader.db);
+    pthread_mutex_destroy(&s->statistics_reader.progress_mutex);
     pthread_mutex_destroy(&s->reader.progress_mutex);
     pthread_mutex_destroy(&s->mutex);
     pthread_cond_destroy(&s->cond);
+    pthread_cond_destroy(&s->statistics_cond);
     free(s);
 }

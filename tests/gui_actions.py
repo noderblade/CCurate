@@ -38,18 +38,21 @@ with tempfile.TemporaryDirectory(prefix='ccurate-actions-') as t:
      if time.monotonic()>end: snap('ERROR-timeout'); raise AssertionError('Operation timeout')
      time.sleep(.03)
     time.sleep(.12)
+   def focus_window():
+    global win
+    win=xd('search','--onlyvisible','--name','CCurate').splitlines()[-1]
+    xd('windowfocus',win); xd('windowsize',win,1920,1200)
+    return win
    def sql(q):
     with sqlite3.connect(dst/'.ccurate/catalog.sqlite',timeout=.1) as db: return db.execute(q).fetchone()
-   until(lambda: xd('search','--name','CCurate'))
-   win=xd('search','--name','CCurate').splitlines()[-1]
-   xd('windowfocus',win); xd('windowsize',win,1920,1200)
+   until(focus_window)
    until(lambda: ready.exists())
    until(lambda: sql('select count(*) from discoveries')[0]>128)
    time.sleep(1.1)
    assert sql('select count(*) from versions')==(0,), 'Expected enumeration to still be running'
    snap('01-live-first-scan')
    def click(x,y): xd('mousemove',x,y); xd('click',1); time.sleep(.18)
-   counts=[8,6,18,8,8,8,4]
+   counts=[8,7,18,8,8,8,4]
    def menu(group,row=None,hover=False):
     click(12+(group+1.5)*237,1180)
     if row is not None:
@@ -59,12 +62,12 @@ with tempfile.TemporaryDirectory(prefix='ccurate-actions-') as t:
      if not hover: xd('click',1); time.sleep(.2)
    menu(1,0,True); snap('02-scan-menu-help')
    # Cancel through the mouse menu (last row), not through Escape.
-   click(520,1200-42-(42+6*29+100)+40+5*29+14)
+   click(520,1200-42-(42+7*29+100)+40+6*29+14)
    gate.unlink()  # Let the scanner observe the cancellation requested by the UI.
    until(lambda: 'Scan cancelled' in (dst/'.ccurate/activity.log').read_text())
    time.sleep(.7)
    assert sql("select value from settings where key='scan_complete'")==('0',)
-   menu(1,0)
+   menu(1,1)
    until(lambda: sql("select value from settings where key='scan_complete'")==('1',),60)
    time.sleep(.8)
    for group in range(7):
@@ -76,7 +79,7 @@ with tempfile.TemporaryDirectory(prefix='ccurate-actions-') as t:
    menu(3,4)
    until(lambda: sql("select reviewed from entries where path='doc-00000.txt'")== (1,))
    index=dst/'.ccurate/archive.jsonl'; before=index.stat().st_mtime_ns
-   menu(1,4); until(lambda: index.stat().st_mtime_ns!=before)
+   menu(1,5); until(lambda: index.stat().st_mtime_ns!=before)
    menu(6,1); time.sleep(.5); snap('03-balance-menu')
    def drag(x0,y0,x1,y1):
     xd('mousemove',x0,y0); xd('mousedown',1); time.sleep(.08)
@@ -108,9 +111,7 @@ with tempfile.TemporaryDirectory(prefix='ccurate-actions-') as t:
    menu(0,7); p.wait(timeout=20); assert p.returncode==0
    assert split('top')==.4 and split('bottom')==.6 and split('rows')==.55
    p=sp.Popen([app,'--browse',dst],env=env,stdout=al,stderr=al)
-   until(lambda: xd('search','--name','CCurate'))
-   win=xd('search','--name','CCurate').splitlines()[-1]
-   xd('windowfocus',win); xd('windowsize',win,1920,1200); time.sleep(.8); snap('07-restored-layout')
+   until(focus_window); time.sleep(.8); snap('07-restored-layout')
    xd('key','F10'); p.wait(timeout=15); assert p.returncode==0
    print('live window / all menu categories / hover help / mouse commands / three splitters / keyboard layout / persistence PASS',flush=True)
   finally:

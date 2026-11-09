@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+- Resume existing catalogs without a startup tree scan. Check source folders
+  lazily on entry, reuse unchanged hashes without catalog rewrites, and publish
+  changed entries as pending before verification. Keep manual tree/full-hash scans.
+- Let navigation and manual operations preempt lazy hashing. Refresh selected
+  directory subtrees before GUI copy so unvisited new files are included.
+- Preserve retained history on change/cancellation, scope absence to stable
+  listings, and label global totals as catalog observations. Add folder-refresh
+  regressions and a native GUI resume/priority test.
+
+- Publish source rows before recursive directory counters, cache recent source and
+  history pages with commit-aware invalidation, and calculate global statistics
+  independently of navigation. Preserve selection and sorting on return.
+- Add explicit before/after-deduplication bytes, saved bytes, redundant copies,
+  independent empty files, unscanned coverage and remaining data to Ctrl+B / Help
+  → Statistics / balance. Show unique contents and savings on the top bar.
+- Keep the existing session schema and recorded hashes; no database rebuild or
+  full rehash is needed. Add large-tree navigation and space-estimate regressions.
+
 - Bundle Mesa Lavapipe for automatic CPU rendering on Windows when system Vulkan
   cannot initialize or present to a window. Add `CCurate-Software.cmd` and the
   `CCURATE_RENDERER=auto|software|vulkan` override.
