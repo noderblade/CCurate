@@ -8,6 +8,7 @@
 #include "curator.h"
 #include "desktop_open.h"
 #include "font_catalog.h"
+#include "gui_columns.h"
 #include "gui_scroll.h"
 #include "gui_types.h"
 #include <Raven.h>
@@ -21,6 +22,7 @@ struct GuiPane {
     unsigned char *marked;
     int n, selected, offset, page, page_end, sort, created;
     int horizontal, name_chars, scroll_pending, scroll_row;
+    float column_widths[GUI_FILE_COLUMNS]; /* Zero keeps the responsive default. */
     int64_t total;
     char **marks;
     int mark_count;
@@ -49,6 +51,8 @@ struct Gui {
     float width, height, row_height, font_size, scale;
     float split_top, split_bottom, split_rows;
     int drag, splitter_hover, menu, menu_row, menu_offset, footer_hover;
+    int column_drag, column_hover, column_side, column_index;
+    float column_start_x, column_start_width, column_previous_width;
     ViewService *view;
     uint64_t view_serial;
     unsigned view_dirty;

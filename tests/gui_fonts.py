@@ -127,7 +127,7 @@ with tempfile.TemporaryDirectory(prefix='ccurate-fonts-') as temp:
             assert '4 compatible monospace faces' in log.read_text(), log.read_text()
             # Open Layout > Monospace font entirely with the mouse.
             click(1552, 1180)
-            click(1278, 1044)
+            click(1278, 957)
             snap('01-font-dialog')
             # Sorted rows: automatic, bundled, Collection Mono, DejaVu Bold, Book.
             click(700, 478)

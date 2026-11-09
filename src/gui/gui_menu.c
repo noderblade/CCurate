@@ -190,7 +190,8 @@ static const Action actions[] = {
      "drag the separators.",
      0, 0, NULL, SET_LAYOUT},
     {5, "Reset panel layout", "Ctrl+Alt+0",
-     "Restore equal column widths and the default row and log heights. Double-click a separator to "
+     "Restore equal pane widths and the default row and log heights. Double-click a pane separator "
+     "to "
      "reset "
      "only that split.",
      0, 0, NULL, RESET_LAYOUT},
@@ -203,6 +204,16 @@ static const Action actions[] = {
      "Choose an installed monospace family and style, preview it, and apply it to the entire "
      "interface. The choice is saved in the session.",
      0, 0, "fonts", 0},
+    {5, "Set column width", "Ctrl+Alt+C",
+     "Choose a column in the active file pane, then enter its width in logical pixels or auto. "
+     "You can also drag header dividers. Widths are saved separately for each pane.",
+     0, 0, "columns", 0},
+    {5, "Fit columns to visible rows", "Ctrl+Alt+W",
+     "Fit every column in the active file pane to its header and visible rows. Double-click a "
+     "header divider to fit just that column. Off-screen rows are not measured.",
+     0, 0, "autofit", 0},
+    {5, "Reset column widths", "F9: resetcolumns",
+     "Restore responsive default column widths in the active file pane.", 0, 0, "resetcolumns", 0},
     {6, "Keyboard and safety help", "F1",
      "Show all keyboard shortcuts and the source-data preservation rules in the information panel.",
      0, 0, "help", 0},
@@ -213,7 +224,8 @@ static const Action actions[] = {
     {6, "Text command", "F9",
      "Enter refresh, scan, fullscan, audit, stats, balance, reconcile, export, history, filter, "
      "review, unreview, "
-     "restore, hex, log, logfilter, logfollow, themes, fonts, legend, open, help or scale 200.",
+     "restore, hex, log, logfilter, logfollow, themes, fonts, legend, open, sort, reverse, "
+     "columns, autofit, resetcolumns, help or scale 200.",
      R_KEY_F9, 0, NULL, 0},
     {6, "File status legend", "",
      "Explain every status, duplicate marker, reviewed/selection prefix and file color.", 0, 0,
@@ -357,7 +369,10 @@ void gui_menu_paint(Gui *ui, RPainter *p)
     }
     if (!ui->menu) {
         const char *tip = NULL;
-        if (ui->splitter_hover)
+        if (ui->column_hover || ui->column_drag)
+            tip =
+                "Drag to resize column | Double-click to fit visible rows | Ctrl+Alt+C: set width";
+        else if (ui->splitter_hover)
             tip = "Drag to resize | Double-click to reset | Ctrl+Alt+L: exact proportions";
         else if (ui->footer_hover >= 0)
             tip = compact ? (ui->footer_hover == 0

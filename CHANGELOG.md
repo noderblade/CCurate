@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- Close statistics-test SQLite connections explicitly before fixture cleanup,
+  fixing Windows `WinError 32` failures in the full and core regression suites.
+
+- Resize each file-browser column by dragging its header divider; double-click
+  to fit the header and currently visible values without querying the catalog.
+  Save widths separately per pane, with keyboard/menu sizing, fit and reset actions.
+- Explain the `counting...` directory placeholder in the in-app status legend
+  and user guide: background completeness counts do not rehash source files.
+
 - Resume existing catalogs without a startup tree scan. Check source folders
   lazily on entry, reuse unchanged hashes without catalog rewrites, and publish
   changed entries as pending before verification. Keep manual tree/full-hash scans.

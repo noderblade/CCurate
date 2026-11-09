@@ -52,7 +52,7 @@ with tempfile.TemporaryDirectory(prefix='ccurate-actions-') as t:
    assert sql('select count(*) from versions')==(0,), 'Expected enumeration to still be running'
    snap('01-live-first-scan')
    def click(x,y): xd('mousemove',x,y); xd('click',1); time.sleep(.18)
-   counts=[8,7,18,8,8,8,4]
+   counts=[8,7,18,8,8,11,4]
    def menu(group,row=None,hover=False):
     click(12+(group+1.5)*237,1180)
     if row is not None:

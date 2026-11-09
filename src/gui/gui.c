@@ -109,6 +109,9 @@ int gui_main(Catalog *c, int historical)
         saved = setting(&ui->reader, date_keys[i], "0");
         ui->pane[i].created = atoi(saved) != 0;
         free(saved);
+        saved = setting(&ui->reader, i ? "ui.columns.right" : "ui.columns.left", "");
+        gui_columns_restore(ui, i, saved);
+        free(saved);
     }
     saved = setting(&ui->reader, "ui.scale", "1");
     ui->scale = fmaxf(.5f, fminf(4, atof(saved)));

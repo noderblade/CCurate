@@ -2,6 +2,7 @@
 #include "gui_activity.h"
 #include "gui_browser.h"
 #include "gui_choices.h"
+#include "gui_columns.h"
 #include "gui_fonts.h"
 #include "gui_jobs.h"
 #include "gui_open.h"
@@ -45,6 +46,8 @@ static const char *help_text =
     "Ctrl+G              go to a relative directory path\n"
     "Ctrl+F3 / Ctrl+F6   sort by name / size\n"
     "Ctrl+S / Ctrl+Shift+S choose sort column / reverse order\n"
+    "Ctrl+Alt+C          choose a column and set its width\n"
+    "Ctrl+Alt+W          fit all columns to visible rows\n"
     "Alt+Left/Right      pan the active file table\n"
     "Ctrl++ / Ctrl+-     UI scale 50-400%; Ctrl+0: 100%\n"
     "Ctrl+,              set an exact UI scale\n"
@@ -65,8 +68,10 @@ static const char *help_text =
     "\n"
     "F9: refresh, scan, fullscan, audit, stats, balance, reconcile, export,\n"
     "history, filter, review, unreview, restore, hex, help, scale 200,\n"
-    "log, logfilter, logfollow, themes, fonts, legend, open, sort, reverse.\n"
+    "log, logfilter, logfollow, themes, fonts, legend, open, sort, reverse,\n"
+    "columns, autofit, resetcolumns.\n"
     "Click a column header to sort; click again to reverse.\n"
+    "Drag a header divider to resize; double-click it to fit visible rows.\n"
     "Scrollbars: drag thumb or click track; Shift+wheel pans.\n"
     "Preview/details: Left/Right pan, Home/End scroll vertically.\n"
     "Drag any separator to resize panes. Double-click to reset.\n"
@@ -126,6 +131,13 @@ void gui_command(Gui *ui, const char *s)
     } else if (!strcmp(s, "sort")) {
         ui->sort_side = ui->focus == 0 ? 0 : 1;
         gui_dropdown_open(ui, 3);
+    } else if (!strcmp(s, "columns")) {
+        ui->column_side = ui->focus == 0 ? 0 : 1;
+        gui_dropdown_open(ui, 4);
+    } else if (!strcmp(s, "autofit")) {
+        gui_columns_autofit(ui, ui->focus == 0 ? 0 : 1, -1);
+    } else if (!strcmp(s, "resetcolumns")) {
+        gui_columns_reset(ui, ui->focus == 0 ? 0 : 1);
     } else if (!strcmp(s, "reverse")) {
         int side = ui->focus == 0 ? 0 : 1;
         int sort = ui->pane[side].sort;
@@ -250,6 +262,18 @@ void gui_prompt_accept(Gui *ui)
             gui_save_ui(ui);
         } else
             gui_notice(ui, "Scale: enter a number from 50 to 400.");
+    } else if (mode == 8) {
+        char *end;
+        double width = strtod(text, &end);
+        if (!strcmp(text, "auto"))
+            gui_columns_autofit(ui, ui->column_side, ui->column_index);
+        else if (end != text && !*end && isfinite(width) && width >= GUI_COLUMN_MIN &&
+                 width <= GUI_COLUMN_MAX) {
+            gui_column_set_width(ui, ui->column_side, ui->column_index, (float)width);
+            gui_save_ui(ui);
+        } else
+            gui_notice(ui,
+                       "Column width: enter 32-32768 logical pixels, or auto to fit visible rows.");
     } else if (mode == 7) {
         float a, b, c, d;
         char extra;
@@ -277,10 +301,16 @@ void gui_layout_prompt(Gui *ui)
 
 void gui_save_ui(Gui *ui)
 {
+    char widths[2][128];
+    for (int i = 0; i < 2; i++) {
+        const float *w = ui->pane[i].column_widths;
+        snprintf(widths[i], sizeof(widths[i]), "%.1f %.1f %.1f %.1f %.1f", w[0], w[1], w[2], w[3],
+                 w[4]);
+    }
     if (ui->view)
         view_save(ui->view, ui->pane[0].path, ui->pane[1].path, ui->pane[1].selected, ui->scale,
                   ui->filter, ui->pane[1].page, ui->split_top, ui->split_bottom, ui->split_rows,
                   ui->theme, ui->log_visible, ui->log_level, ui->split_log, ui->font_file,
                   ui->font_family, ui->font_style, ui->font_index, ui->pane[0].sort,
-                  ui->pane[1].sort, ui->pane[0].created, ui->pane[1].created);
+                  ui->pane[1].sort, ui->pane[0].created, ui->pane[1].created, widths[0], widths[1]);
 }

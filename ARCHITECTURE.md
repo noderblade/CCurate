@@ -23,11 +23,12 @@ to the core. The GUI implementation and its private interfaces live in `src/gui/
 | `gui_input.c` | `gui_input.h` | Keyboard and pointer dispatch for the workspace |
 | `gui_jobs.c` | `gui_jobs.h` | Scan/copy operation workers and preview requests, cancellation and results |
 | `gui_layout.c` | `gui_layout.h` | Panel geometry, hit testing and split proportions |
+| `gui_columns.c` | `gui_columns.h` | Shared file-cell formatting, draggable column boundaries, visible-row auto-fit and saved widths |
 | `gui_scroll.c` | `gui_scroll.h` | Shared draggable scrollbar geometry, global file-list seeking and cached text viewport layout |
 | `gui_render.c` | `gui_render.h` | Canvas rendering and shared text drawing helpers |
 | `gui_menu.c` | `gui_menu.h` | Action definitions, footer menus and menu navigation |
 | `gui_activity.c` | `gui_activity.h` | Activity log display, scrolling and severity choices |
-| `gui_choices.c` | `gui_choices.h` | Log-level, color-scheme and sort-order popup controls |
+| `gui_choices.c` | `gui_choices.h` | Log-level, color-scheme, sort-order and column-width popup controls |
 | `gui_fonts.c` | `gui_fonts.h` | Installed-font chooser, asynchronous font results and font resource lifetime |
 | `gui_theme.c` | `gui_theme.h` | Private palette data, theme application and the file-status legend |
 

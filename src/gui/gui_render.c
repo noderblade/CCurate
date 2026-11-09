@@ -2,6 +2,7 @@
 #include "gui_activity.h"
 #include "gui_browser.h"
 #include "gui_choices.h"
+#include "gui_columns.h"
 #include "gui_fonts.h"
 #include "gui_layout.h"
 #include "gui_menu.h"
@@ -104,13 +105,17 @@ static void gui_pane_paint(Gui *ui, RPainter *p, int side, float x, float y, flo
     for (int j = 0; j < 5; j++) {
         int sorted = (pn->sort & SORT_COLUMN_MASK) == columns[j];
         char label[64];
-        snprintf(label, sizeof(label), "%s%s", gui_sort_name(columns[j]),
-                 sorted ? (pn->sort & SORT_DESC ? " v" : " ^") : "");
+        gui_column_label(ui, side, j, label);
         gui_text_clip(
             ui, p, xx, top, widths[j] - 5, 24, label,
             GUI_HEX_COLOR(sorted ? gui_theme_current(ui)->accent : gui_theme_current(ui)->muted),
             ui->font_size - 1);
         xx += widths[j];
+        int hot = ui->column_hover == side * GUI_FILE_COLUMNS + j + 1 ||
+                  (ui->column_drag && ui->column_side == side && ui->column_index == j);
+        Rdraw_rect(
+            p, xx - 1, top, 1, 19, 0,
+            GUI_HEX_COLOR(hot ? gui_theme_current(ui)->accent : gui_theme_current(ui)->border), 1);
     }
     Rdraw_pop_clip_rect(p);
     int count = gui_row_count(pn), visible = gui_table_visible(ui, side);
@@ -135,7 +140,7 @@ static void gui_pane_paint(Gui *ui, RPainter *p, int side, float x, float y, flo
             Rdraw_rect(p, layout.body.x, ry, layout.body.w, ui->row_height - 1, 0,
                        GUI_COLOR(ui, alternate), 1);
         if (i < 0) {
-            gui_text_clip(ui, p, x + 13, ry + 3, w - 20, ui->row_height, "[..]",
+            gui_text_clip(ui, p, x + 13, ry + 3, name - 9, ui->row_height, "[..]",
                           GUI_COLOR(ui, directory), ui->font_size);
             continue;
         }
@@ -158,63 +163,19 @@ static void gui_pane_paint(Gui *ui, RPainter *p, int side, float x, float y, flo
             color = gui_theme_current(ui)->duplicate;
         if (sel)
             color = gui_theme_current(ui)->text;
-        char *safe = display_path(e->name);
-        char *nm = fmt("%s%s%s",
-                       pn->marked[i] ? "* "
-                       : e->reviewed ? "r "
-                                     : "  ",
-                       safe, dir ? "/" : "");
-        free(safe);
-        gui_text_clip(ui, p, x + 10, ry + 3, name - 4, ui->row_height, nm, GUI_HEX_COLOR(color),
-                      ui->font_size);
-        free(nm);
-        char state[96];
-        if (side && !strncmp(e->error, "UNSCANNED:", 10))
-            snprintf(state, sizeof(state), "UNSCANNED");
-        else if (side && e->pending)
-            snprintf(state, sizeof(state), *e->error ? "ERROR" : "PENDING");
-        else if (dir && side && e->children < 0)
-            snprintf(state, sizeof(state), atomic_load(&ui->busy) ? "scanning..." : "counting...");
-        else if (dir && side)
-            snprintf(state, sizeof(state), "%s %lld/%lld",
-                     e->discarded                                 ? "REJ"
-                     : *e->error                                  ? "ERROR"
-                     : (e->accepted && e->children == e->secured) ? "OK"
-                                                                  : "--",
-                     (long long)e->secured, (long long)e->children);
-        else if (e->discarded)
-            snprintf(state, sizeof(state), "REJECTED");
-        else if (*e->error)
-            snprintf(state, sizeof(state), "ERROR");
-        else if (!strcmp(e->state, "corrupt"))
-            snprintf(state, sizeof(state), "CHANGED");
-        else if (!strcmp(e->state, "missing") && *e->dest)
-            snprintf(state, sizeof(state), "MISSING");
-        else if (!strcmp(e->state, "unchecked"))
-            snprintf(state, sizeof(state), "UNCHECKED");
-        else if (e->copies > 1)
-            snprintf(state, sizeof(state), "%s %s%d", secured ? "OK" : "--",
-                     e->original ? "O x" : "D x", e->copies);
-        else
-            snprintf(state, sizeof(state), "%s",
-                     secured                        ? "OK"
-                     : *e->error                    ? "ERROR"
-                     : !strcmp(e->state, "corrupt") ? "CHANGED"
-                     : side                         ? "UNCOPIED"
-                     : !strcmp(e->name, META_DIR)   ? "SESSION"
-                                                    : "");
-        gui_text_clip(ui, p, x + 8 + name, ry + 3, status - 4, ui->row_height, state,
+        GuiFileCells cells;
+        gui_file_cells(ui, side, i, &cells);
+        gui_text_clip(ui, p, x + 10, ry + 3, name - 4, ui->row_height, cells.name,
+                      GUI_HEX_COLOR(color), ui->font_size);
+        free(cells.name);
+        gui_text_clip(ui, p, x + 8 + name, ry + 3, status - 4, ui->row_height, cells.status,
                       GUI_HEX_COLOR(color), ui->font_size - 1);
-        char sz[40], date[40], mode[20];
-        human_bytes(e->size, sz);
-        date_text(pn->created ? e->btime : e->mtime, date);
-        snprintf(mode, sizeof(mode), "%04llo", (unsigned long long)e->mode & 07777);
-        gui_text_clip(ui, p, x + 8 + name + status, ry + 3, size - 4, ui->row_height,
-                      dir ? "<DIR>" : sz, GUI_COLOR(ui, muted), ui->font_size - 1);
-        gui_text_clip(ui, p, x + 8 + name + status + size, ry + 3, time - 4, ui->row_height, date,
-                      GUI_COLOR(ui, muted), ui->font_size - 2);
+        gui_text_clip(ui, p, x + 8 + name + status, ry + 3, size - 4, ui->row_height, cells.size,
+                      GUI_COLOR(ui, muted), ui->font_size - 1);
+        gui_text_clip(ui, p, x + 8 + name + status + size, ry + 3, time - 4, ui->row_height,
+                      cells.date, GUI_COLOR(ui, muted), ui->font_size - 2);
         gui_text_clip(ui, p, x + 8 + name + status + size + time, ry + 3, widths[4] - 12,
-                      ui->row_height, mode, GUI_COLOR(ui, muted), ui->font_size - 2);
+                      ui->row_height, cells.mode, GUI_COLOR(ui, muted), ui->font_size - 2);
     }
     Rdraw_pop_clip_rect(p);
     x = outer_x;

@@ -224,7 +224,7 @@ int main(int argc, char **argv)
         printf("superseded query %.3f s; latest view correct\n", (monotonic_ns() - start) / 1e9);
         view_result_free(r);
         view_save(service, "kept-left", "kept-right", 17, 2.75, 1, 3, .4, .6, .55, 1, 0, -1, .25,
-                  "", "", "", 0, SORT_NAME, SORT_SIZE | SORT_DESC, 0, 0);
+                  "", "", "", 0, SORT_NAME, SORT_SIZE | SORT_DESC, 0, 0, "0 0 0 0 0", "0 0 0 0 0");
         view_stop(service);
         char *value = setting(&c, "ui.scale", "");
         assert(!strcmp(value, "2.750"));

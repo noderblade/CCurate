@@ -147,6 +147,9 @@ scrollbars span the entire directory, including entries on other pages. Click
 any column header to sort, then click again to reverse: name, status/copies,
 size, date or permissions. Modified and created dates are both available.
 Sorting applies to the whole directory and is saved independently for each pane.
+Drag header dividers to resize columns; double-click a divider to fit its header
+and visible values. Column widths persist separately for both panes. Layout menu
+actions and keyboard controls provide the same sizing and auto-fit functions.
 
 Source lists appear before recursive folder counters finish. `counting...` is a
 temporary counter placeholder; it does not prevent navigation. Recently visited

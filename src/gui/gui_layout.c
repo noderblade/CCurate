@@ -83,8 +83,11 @@ GuiTable gui_table(Gui *ui, int side)
     t.widths[2] = fmaxf(106, t.body.w * .13f);
     t.widths[3] = fmaxf(166, t.body.w * .20f);
     t.widths[4] = 80;
-    for (int i = 0; i < 5; i++)
+    for (int i = 0; i < GUI_FILE_COLUMNS; i++) {
+        if (ui->pane[side].column_widths[i] > 0)
+            t.widths[i] = ui->pane[side].column_widths[i];
         t.width += t.widths[i];
+    }
     return t;
 }
 

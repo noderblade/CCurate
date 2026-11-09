@@ -229,7 +229,7 @@ height. All four values are required. Values range
 from 15 to 85; minimum readable pane sizes also constrain small windows.
 **Ctrl+Alt+0** resets all four splits. Resizing panes does not change the UI scale.
 
-## Scrolling and sorting
+## Scrolling, sorting and column widths
 
 Destination, source/history, text preview, details and Activity have independent
 vertical and horizontal scrollbars. Drag a thumb or click its track to move one
@@ -263,6 +263,20 @@ Column, direction and date-column choice are saved independently for each pane.
 **Ctrl+T** switches that pane between Modified and Created; when sorting by date,
 the ordering switches to the newly displayed date too. Horizontal scrolling
 exposes every column even in narrow panes or beside long filenames.
+
+Drag a divider at the right edge of a column header to resize that column.
+Double-click the divider to fit the widest **currently visible** value or the
+header, including the sort indicator. Off-screen rows and other list pages are
+not measured; fitting does not query the catalog or read source files. Header
+labels still sort when clicked. Each pane saves its own widths across navigation
+and restarts; UI scaling scales those logical widths along with the interface.
+
+**Layout > Set column width** (**Ctrl+Alt+C**, F9 **`columns`**) lets you choose a
+column with the mouse or arrow keys, then enter a width from 32 to 32768 logical
+pixels or **`auto`** to fit that column. **Layout > Fit columns to visible rows**
+(**Ctrl+Alt+W**, F9 **`autofit`**) fits all five columns of the active pane.
+**Layout > Reset column widths** (F9 **`resetcolumns`**) restores responsive
+defaults for that pane. These actions also work in the archive history view.
 
 ## Activity log
 
@@ -363,6 +377,7 @@ surfaces; all file states also have textual labels.
 | OK s/n / -- s/n | Retained/complete or incomplete directory; s of n eligible descendants secured |
 | REJ s/n | Rejected directory |
 | scanning... | Expensive completeness counts deferred during a background job |
+| counting... | Secured/eligible descendant counts are being calculated from the catalog in the background; no files are rehashed and navigation remains available |
 | r / * before name | Reviewed by you / selected for an operation |
 
 Directory, secured, duplicate, error and rejected entries have semantic colors.
@@ -441,6 +456,8 @@ curation operations, whole-tree scans or **F9: export**, not on every folder vis
 | `/` | Filter names in the current directory; an empty value clears it |
 | Ctrl+G | Go to a directory relative to the pane root |
 | Ctrl+S / Ctrl+Shift+S | Choose any sort column / reverse direction |
+| Ctrl+Alt+C | Choose a column and set its width; enter `auto` to fit visible rows |
+| Ctrl+Alt+W | Fit all columns in the active pane to visible rows |
 | Ctrl+F3 / Ctrl+F6 | Sort by name ascending / size descending |
 | Alt+Left / Alt+Right | Scroll the active file table horizontally |
 | Shift+wheel | Scroll horizontally in the pane under the pointer |

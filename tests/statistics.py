@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Space estimates use current eligible contents, not historical or pending hashes."""
 from pathlib import Path
+from contextlib import closing
 import re
 import sqlite3
 import subprocess
@@ -34,7 +35,9 @@ class Statistics(unittest.TestCase):
         return result.stdout
 
     def sql(self, statement):
-        with sqlite3.connect(self.destination / '.ccurate/catalog.sqlite') as db:
+        # The connection context commits/rolls back, but does not close the
+        # handle. Windows cannot remove the fixture database while it is open.
+        with closing(sqlite3.connect(self.destination / '.ccurate/catalog.sqlite')) as db, db:
             db.executescript(statement)
 
     def check(self, raw, unique, saved, needed, files, empty=2, unknown=0, partial=False):

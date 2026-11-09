@@ -115,7 +115,8 @@ void view_save(ViewService *s, const char *left, const char *right, int selected
                int filter, int page, float split_top, float split_bottom, float split_rows,
                int theme, int log_visible, int log_level, float split_log, const char *font_file,
                const char *font_family, const char *font_style, int font_index, int sort_left,
-               int sort_right, int created_left, int created_right);
+               int sort_right, int created_left, int created_right, const char *columns_left,
+               const char *columns_right);
 void view_stop(ViewService *s);
 
 ActivityLog *activity_open(int state_fd);

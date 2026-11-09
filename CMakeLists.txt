@@ -51,6 +51,7 @@ if(CCURATE_GUI)
    src/gui/gui_open.c
    src/gui/gui_jobs.c
    src/gui/gui_layout.c
+   src/gui/gui_columns.c
    src/gui/gui_scroll.c
    src/gui/gui_render.c
    src/gui/gui_input.c

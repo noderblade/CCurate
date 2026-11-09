@@ -1,6 +1,7 @@
 #include "gui_choices.h"
 #include "gui_activity.h"
 #include "gui_browser.h"
+#include "gui_columns.h"
 #include "gui_controller.h"
 #include "gui_layout.h"
 #include "gui_render.h"
@@ -19,7 +20,10 @@ static void gui_dropdown_choose(Gui *ui);
 
 static int gui_dropdown_count(Gui *ui)
 {
-    return ui->dropdown == 1 ? 5 : ui->dropdown == 3 ? SORT_COUNT + 2 : gui_theme_count();
+    return ui->dropdown == 1   ? 5
+           : ui->dropdown == 3 ? SORT_COUNT + 2
+           : ui->dropdown == 4 ? GUI_FILE_COLUMNS
+                               : gui_theme_count();
 }
 
 static GuiRect gui_dropdown_rect(Gui *ui, int *first, int *visible)
@@ -44,6 +48,7 @@ void gui_dropdown_open(Gui *ui, int type)
     ui->dropdown = type;
     ui->dropdown_row = type == 1   ? gui_log_level_index(ui)
                        : type == 3 ? ui->pane[ui->sort_side].sort & SORT_COLUMN_MASK
+                       : type == 4 ? 0
                                    : ui->theme;
     ui->dropdown_offset = 0;
     int first, visible;
@@ -62,6 +67,11 @@ static void gui_dropdown_choose(Gui *ui)
         ui->log_revision = UINT64_MAX;
         ui->log_scroll = ui->log_horizontal = 0;
         gui_refresh_log(ui);
+    } else if (ui->dropdown == 4) {
+        ui->column_index = ui->dropdown_row;
+        ui->dropdown = 0;
+        gui_column_prompt(ui);
+        return;
     } else if (ui->dropdown == 3) {
         int sort = ui->pane[ui->sort_side].sort;
         int column = ui->dropdown_row < SORT_COUNT ? ui->dropdown_row : sort & SORT_COLUMN_MASK;
@@ -88,14 +98,19 @@ void gui_dropdown_paint(Gui *ui, RPainter *p)
     gui_text_clip(ui, p, r.x + 12, r.y + 12, r.w - 24, 24,
                   ui->dropdown == 1   ? "LOG LEVEL | arrows / Enter / Esc"
                   : ui->dropdown == 3 ? "SORT | arrows / Enter / Esc"
+                  : ui->dropdown == 4 ? "COLUMN WIDTH | arrows / Enter / Esc"
                                       : "COLOR SCHEME | arrows / Enter / Esc",
                   GUI_COLOR(ui, muted), ui->font_size - 1);
     for (int i = first; i < first + visible; i++) {
+        char label[64];
+        if (ui->dropdown == 4)
+            gui_column_label(ui, ui->column_side, i, label);
         float y = r.y + 42 + (i - first) * 30;
         if (i == ui->dropdown_row)
             Rdraw_rect(p, r.x + 5, y, r.w - 10, 28, 4, GUI_COLOR(ui, selection), 1);
         gui_text_clip(ui, p, r.x + 14, y + 6, r.w - 28, 24,
                       ui->dropdown == 1   ? gui_activity_level_name(i)
+                      : ui->dropdown == 4 ? label
                       : ui->dropdown == 3 ? (i < SORT_COUNT    ? gui_sort_name(i)
                                              : i == SORT_COUNT ? "Ascending"
                                                                : "Descending")

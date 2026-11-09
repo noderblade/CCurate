@@ -3,7 +3,25 @@
 CCurate 0.1.0 plus the Windows port and scan/empty-file fixes, validation updated 7 November 2026.
 Linux remains the primary platform.
 
-## Uncommitted lazy-resume and large-catalog preview (2026-11-09)
+## Column resizing and legend update
+
+The full GUI/media and core-only Linux builds each pass all six CTest cases.
+Five native-window scripts also pass: `gui_columns.py`, `gui_scroll_sort.py`,
+`gui_actions.py`, `gui_activity.py` and `gui_fonts.py`. The new test covers all
+five dividers in both panes, sorting after resizing, visible-only double-click
+auto-fit, the last divider after horizontal scrolling, keyboard sizing, invalid
+widths, empty folders, reset, UI scaling and restored geometry after restart.
+The fitted table and updated directory-status legend were visually inspected.
+The shared GUI module is included in both platform builds. GitHub Actions runs
+the Linux regression set and the native Windows full/core, GUI and packaged
+runtime tests for each pushed revision.
+
+The statistics fixture closes SQLite connections explicitly as well as ending
+their transactions. A connection context alone leaves its handle open, causing
+Windows cleanup to fail with `WinError 32` in the two tests that modify the
+fixture database. Assertions and cleanup remain enabled on both platforms.
+
+## Lazy resume and large-catalog navigation (2026-11-09)
 
 `navigation_cache` exercises bounded first-page work before descendant aggregation,
 parent anchors, SQLite commit invalidation after decisions, distinct search/sort/
@@ -16,7 +34,7 @@ files, verified copies, rejection/restoration of individual occurrences and whol
 groups, retained older versions, absent source paths, pending observations,
 UNSCANNED paths, incomplete traversal, corrupt destinations and an empty plan.
 Both full and core Linux builds include these CTest cases. The Windows CMake
-selection includes the statistics cases for its next authorized CI build.
+selection also includes the statistics cases.
 
 `tests/navigation_scale.py` additionally generated a disposable 17-million-file
 catalog for before/after timing. Measurements and limitations are recorded in
@@ -136,6 +154,7 @@ configurations, stress/live-scan/sorting and all production preview suites.
 | `gui_fonts.py` | Font chooser, keyboard/mouse controls, TTF/OTF/TTC faces, filtering, cancellation and persistence |
 | `gui_navigation_open.py` | Parent focus and scroll restoration across pages; double-click, keyboard and menu application opening |
 | `gui_scroll_sort.py` | Clickable sort headers, keyboard sorting, per-pane persistence, global list dragging across 2,205 rows, horizontal tables and preview/details/log scrollbars |
+| `gui_columns.py` | All five dividers in both panes, viewport-only auto-fit, sorting after resize, horizontal scrolling, keyboard sizing/fit/reset, empty folders and persistence across scaling/restart |
 | `gui_startup.py` | No-argument folder selection without typing paths, keyboard and mouse browsing, hidden roots, cancellation, equal-root rejection, session resume, offline browsing and session-open errors |
 
 Install Xvfb, xdotool, Python Pillow/fontTools, DejaVu/URW fonts and a working
@@ -148,6 +167,7 @@ python3 tests/gui_activity.py build/ccurate
 python3 tests/gui_fonts.py build/ccurate
 python3 tests/gui_navigation_open.py build/ccurate
 python3 tests/gui_scroll_sort.py build/ccurate
+python3 tests/gui_columns.py build/ccurate
 python3 tests/gui_startup.py build/ccurate
 ```
 

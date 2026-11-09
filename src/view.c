@@ -12,7 +12,7 @@
 #include <time.h>
 #include <unistd.h>
 
-enum { VIEW_SETTING_COUNT = 21 };
+enum { VIEW_SETTING_COUNT = 23 };
 
 struct ViewService {
     Catalog reader;
@@ -314,12 +314,12 @@ static int save_settings(ViewService *s, char **values)
     /* A busy data writer must not stall the renderer. Retry later in this worker. */
     if (sqlite3_exec(s->reader.db, "BEGIN IMMEDIATE", NULL, NULL, NULL) != SQLITE_OK)
         return -1;
-    const char *keys[] = {"ui.left",       "ui.right",     "ui.selected",    "ui.scale",
-                          "ui.filter",     "ui.page",      "ui.split.top",   "ui.split.bottom",
-                          "ui.split.rows", "ui.theme",     "ui.log.visible", "ui.log.level",
-                          "ui.split.log",  "ui.font.file", "ui.font.family", "ui.font.style",
-                          "ui.font.index", "ui.sort.left", "ui.sort.right",  "ui.date.left",
-                          "ui.date.right"};
+    const char *keys[] = {"ui.left",       "ui.right",        "ui.selected",     "ui.scale",
+                          "ui.filter",     "ui.page",         "ui.split.top",    "ui.split.bottom",
+                          "ui.split.rows", "ui.theme",        "ui.log.visible",  "ui.log.level",
+                          "ui.split.log",  "ui.font.file",    "ui.font.family",  "ui.font.style",
+                          "ui.font.index", "ui.sort.left",    "ui.sort.right",   "ui.date.left",
+                          "ui.date.right", "ui.columns.left", "ui.columns.right"};
     _Static_assert(sizeof(keys) / sizeof(keys[0]) == VIEW_SETTING_COUNT, "UI settings count");
     int rc = 0;
     for (int i = 0; i < VIEW_SETTING_COUNT; i++)
@@ -673,19 +673,32 @@ void view_save(ViewService *s, const char *left, const char *right, int selected
                int filter, int page, float split_top, float split_bottom, float split_rows,
                int theme, int log_visible, int log_level, float split_log, const char *font_file,
                const char *font_family, const char *font_style, int font_index, int sort_left,
-               int sort_right, int created_left, int created_right)
+               int sort_right, int created_left, int created_right, const char *columns_left,
+               const char *columns_right)
 {
-    char *v[] = {xstrdup(left),           xstrdup(right),
-                 fmt("%d", selected),     fmt("%.3f", scale),
-                 fmt("%d", filter),       fmt("%d", page),
-                 fmt("%.4f", split_top),  fmt("%.4f", split_bottom),
-                 fmt("%.4f", split_rows), fmt("%d", theme),
-                 fmt("%d", log_visible),  fmt("%d", log_level),
-                 fmt("%.4f", split_log),  xstrdup(font_file),
-                 xstrdup(font_family),    xstrdup(font_style),
-                 fmt("%d", font_index),   fmt("%d", sort_left),
-                 fmt("%d", sort_right),   fmt("%d", created_left),
-                 fmt("%d", created_right)};
+    char *v[] = {xstrdup(left),
+                 xstrdup(right),
+                 fmt("%d", selected),
+                 fmt("%.3f", scale),
+                 fmt("%d", filter),
+                 fmt("%d", page),
+                 fmt("%.4f", split_top),
+                 fmt("%.4f", split_bottom),
+                 fmt("%.4f", split_rows),
+                 fmt("%d", theme),
+                 fmt("%d", log_visible),
+                 fmt("%d", log_level),
+                 fmt("%.4f", split_log),
+                 xstrdup(font_file),
+                 xstrdup(font_family),
+                 xstrdup(font_style),
+                 fmt("%d", font_index),
+                 fmt("%d", sort_left),
+                 fmt("%d", sort_right),
+                 fmt("%d", created_left),
+                 fmt("%d", created_right),
+                 xstrdup(columns_left),
+                 xstrdup(columns_right)};
     _Static_assert(sizeof(v) / sizeof(v[0]) == VIEW_SETTING_COUNT, "UI settings count");
     pthread_mutex_lock(&s->mutex);
     for (int i = 0; i < VIEW_SETTING_COUNT; i++) {

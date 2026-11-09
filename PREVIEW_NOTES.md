@@ -1,10 +1,33 @@
-# Lazy resume, large-catalog navigation and space-statistics preview
+# Column resizing and status-legend notes
 
-Date: 2026-11-09. Base: `6e7ab866533093fae87dd26733a10dda0fadf3cc`.
-This source package contains uncommitted changes for local evaluation. It does
-not correspond to a new GitHub commit or a replacement Windows release.
+Date: 2026-11-10. Base: `a886b435d3ca7860094a625e1830f367234581c6`.
+These notes describe the column-sizing changes relative to the base commit.
+The Windows download is published only after the full build/test workflow passes.
 
 ## What changed
+
+The status legend in F1 and Help now explains `counting...`: secured/eligible
+descendant counts are calculated from the catalog in the background, without
+rehashing files or preventing navigation.
+
+Both file panes support dragging each header divider to resize a column.
+Double-click a divider to fit its header and widest currently visible value.
+Off-screen rows and other pages do not affect fitting. The same cell formatting
+and font measurement are used for drawing and fitting, including name prefixes,
+file sizes, dates, permissions and status markers. Widths are saved separately
+for each pane and survive navigation, UI scaling and restarts.
+
+Layout > Set column width / Ctrl+Alt+C opens a column chooser, then accepts a
+width in logical pixels or `auto`. Ctrl+Alt+W / F9 `autofit` fits all columns in
+the active pane; Layout > Reset column widths / F9 `resetcolumns` restores its
+responsive defaults. Column dragging and fitting preserve sort and selection;
+clicking the header label still sorts. Horizontal scrolling reaches columns
+that do not fit inside the pane.
+
+## Included baseline behavior
+
+The following lazy-resume, navigation and statistics changes are already part of
+the base commit. They are retained in this preview.
 
 Existing sessions now open their saved catalog without a whole-drive scan. A new
 session still starts its initial scan automatically. Each source-folder visit
@@ -89,5 +112,5 @@ still take time. This change removes recursive counters from the normal list's
 critical path and avoids repeating unchanged page queries; it does not make every
 possible database query constant-time.
 
-See TESTING.md for regression coverage. Linux is the validated primary platform.
-No GitHub workflow was run for this uncommitted preview.
+See TESTING.md for regression coverage. Linux remains the primary platform;
+GitHub Actions validates both Linux and native Windows before Windows publication.

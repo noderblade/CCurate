@@ -2,6 +2,7 @@
 #include "gui_activity.h"
 #include "gui_browser.h"
 #include "gui_choices.h"
+#include "gui_columns.h"
 #include "gui_controller.h"
 #include "gui_fonts.h"
 #include "gui_jobs.h"
@@ -18,6 +19,8 @@
 
 int gui_handle_event(Gui *ui, const REvent *e)
 {
+    if (e->type == R_EVENT_MOUSE_MOVE)
+        ui->column_hover = 0;
     /* Raven's window hook runs before its own double-click counter. Events handled
      * here never reach that counter, so track canvas clicks explicitly. */
     REvent adjusted;
@@ -53,6 +56,8 @@ int gui_handle_event(Gui *ui, const REvent *e)
         }
         return 0;
     }
+    if (ui->column_drag && gui_columns_event(ui, e))
+        return 1;
     if (gui_scroll_event(ui, e))
         return 1;
     if (gui_font_picker_event(ui, e))
@@ -60,6 +65,8 @@ int gui_handle_event(Gui *ui, const REvent *e)
     if (gui_dropdown_event(ui, e))
         return 1;
     if (gui_menu_event(ui, e))
+        return 1;
+    if (gui_columns_event(ui, e))
         return 1;
     GuiGeometry g = gui_geometry(ui);
     if (gui_log_event(ui, e, g))
@@ -235,6 +242,10 @@ int gui_handle_event(Gui *ui, const REvent *e)
     }
     if (ctrl && (e->modifiers & R_MOD_ALT) && k == R_KEY_F) {
         gui_font_picker_open(ui);
+        return 1;
+    }
+    if (ctrl && (e->modifiers & R_MOD_ALT) && (k == R_KEY_C || k == R_KEY_W)) {
+        gui_command(ui, k == R_KEY_C ? "columns" : "autofit");
         return 1;
     }
     if (ctrl && (e->modifiers & R_MOD_ALT) && k == R_KEY_T) {
