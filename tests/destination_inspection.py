@@ -48,7 +48,7 @@ with tempfile.TemporaryDirectory(prefix='ccurate-inspection-') as temporary:
     def inspect(path, page=0):
         r = sp.run([driver, target, path, str(page)], capture_output=True, timeout=20)
         assert r.returncode == 0, r.stderr.decode(errors='replace')
-        return r.stdout.decode()
+        return r.stdout.decode().replace('\r\n', '\n')
 
     detail = inspect('curated/archive.txt')
     assert 'DESTINATION\n' in detail and 'curated/archive.txt' in detail
