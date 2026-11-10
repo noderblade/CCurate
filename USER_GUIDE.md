@@ -294,7 +294,7 @@ The full append-only history is saved at:
 Each text record contains a UTC timestamp, level, event name, source/destination
 path and message. Scan read errors include the affected path and OS error;
 metadata limitations and failed previews are warnings. Scan phase summaries,
-copy/reuse/move decisions, review/rejection actions, audits and session lifecycle
+copy/reuse/move/remove decisions, review/rejection actions, audits and session lifecycle
 are recorded. Debug records include preview and settings activity. Control bytes
 in paths/messages are escaped, so a filename cannot insert a fake log line.
 
@@ -438,6 +438,7 @@ curation operations, whole-tree scans or **F9: export**, not on every folder vis
 | F5 | Copy selected source entries into the current left-hand directory |
 | Ctrl+F5 | Preserve a complete directory, including empty directories |
 | F6 | Move/rename the selected destination entry and update its mappings |
+| Ctrl+Delete | Confirm removal of one indexed destination copy; live source verification required |
 | F7 | Create a destination directory |
 | F8 / Shift+F8 | Reject / restore a source entry or subtree |
 | Ctrl+P | Toggle the independent reviewed flag |
@@ -538,9 +539,61 @@ F6 updates the locations of all contents below a moved directory without changin
 historical names. Cross-filesystem/dataset moves are refused if `renameat2`
 returns `EXDEV`; an automatic copy/delete fallback is not implemented.
 
+### Remove destination copy
+
+Select one regular file in **Destination**, then use **Files > Remove destination
+copy**, **Ctrl+Delete**, or F9 **`remove`**. This action uses the focused destination
+row, not a multiple selection. It does not operate on source files, folders,
+symlinks, unindexed files or anything inside `.ccurate`.
+
+The confirmation starts on **Cancel**. Press Tab or Left/Right to switch buttons;
+Enter or Space activates the button marked `(Enter)`. Esc cancels. Both buttons
+also work with the mouse. Verification and removal run in the background.
+Long paths and messages scroll with the wheel, scrollbar, Up/Down or PgUp/PgDn;
+the buttons remain outside the scrolling area.
+
+Before deleting, CCurate verifies the destination against its indexed SHA-512 and
+looks for an identical live source copy among the recorded occurrences. It hashes
+actual bytes, rather than trusting the saved hash or matching size/timestamps.
+If the original source changed, an unchanged duplicate can satisfy this check.
+An archived older version with no matching live copy is protected: use F6 to move
+it instead. Source files detected as open for writing, changing or inaccessible
+cannot authorize removal. Offline archive browsing cannot remove copies.
+
+After removal, every linked occurrence becomes **unsecured** and appears in the
+unsecured filter unless rejected. Balance and the top bar update the remaining
+bytes. Retained source paths, metadata, versions, reviewed flags and rejections
+stay in the catalog; Details shows **No destination copy**. A `remove` event is
+written to the portable JSONL index and Activity log, and the old destination
+mapping is detached. A later F5 copies to the newly chosen directory. Empty-file
+mappings are independent, so removing one does not affect other empty files.
+
+This is a permanent removal of the destination file, not a recycle bin. The live
+source is verified immediately before deletion but is not frozen by a snapshot;
+it can still change later. The existing best-effort writer detection limits apply.
+
+Removal journals intent before staging the file beside its current location.
+This works across destination subdirectories in separate ZFS datasets without a
+cross-dataset rename. On interruption, startup **restores a staged copy instead
+of continuing deletion**. If the original name is occupied, both files remain;
+the retained mapping points at `.ccurate-remove-….pending` and Activity records
+its exact path. Such a recovered copy is **UNCHECKED** until audited, then F6 can
+place it normally. If deletion completed before the database commit, recovery
+detaches the stale mapping and refreshes JSONL. Never delete a staging file by
+hand while recovery is pending.
+An interrupted or failed JSONL export remains in the operation journal and is
+retried on startup, even if the removal's SQLite transaction already committed.
+
+CLI equivalent (the confirmation flag is required):
+
+```sh
+./build/ccurate --cli /mnt/old /mnt/new remove 'Wrong/place/photo.jpg' --confirm
+```
+
 ## Live source and session persistence
 
-Each launch refreshes the tree. Unchanged files are identified by device, inode,
+Existing sessions open the saved catalog and check the visited source folder in
+the background; they do not restart a whole-tree scan. Unchanged files are identified by device, inode,
 size, mode, mtime and ctime, with nanosecond timestamps. Changed files receive a
 new version and SHA-512; earlier retained versions remain archived. A newly found
 occurrence of verified nonempty content can be associated with its existing copy.
@@ -573,7 +626,7 @@ of the entire live filesystem at one instant.
 `DESTINATION/.ccurate/catalog.sqlite` holds inventory, decisions, versions,
 content mappings, per-version empty-file locations, operation history and view settings. The database uses WAL and
 durable commits. Scanning commits batches of 128 entries. After interruption, the
-program reconciles pending copy/move operations and continues from saved state.
+program reconciles pending copy/move/removal operations and continues from saved state.
 The unstarted remainder of a multiple-selection operation is not a durable work
 queue; select those entries again after a restart. Cancelled scan observations
 remain visible as pending and are verified on a subsequent folder visit or scan. They never
@@ -630,7 +683,9 @@ SQLite handles session transactions; JSONL is the readable standalone export.
 
 `DESTINATION/.ccurate/archive.jsonl` is atomically replaced after a completed
 operation or batch. It contains retained contents, historical paths and metadata,
-and placement/move events. It does not export the whole unreviewed inventory.
+and placement/move/removal events. Retained paths whose destination copy was
+removed remain in the index without a content mapping. It does not export the
+whole unreviewed inventory.
 Placement history can still mention an earlier location of a subsequently rejected
 entry; that entry does not appear in the retained tree. See [FORMAT.md](FORMAT.md).
 
@@ -743,7 +798,7 @@ the interface remains usable.
 
 ## CLI and development
 
-`./build/ccurate --help` lists scan, copy, audit, export/import, move and
+`./build/ccurate --help` lists scan, copy, audit, export/import, move, remove and
 marking commands. The empty relative path `''` denotes the root.
 
 Build only the core, without GUI or image/PDF/video decoders:

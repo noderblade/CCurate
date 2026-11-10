@@ -1,4 +1,5 @@
 #include "curator.h"
+#include "remove_target.h"
 #include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -126,8 +127,11 @@ static int verify_at(Catalog *c, const char *path, const char *expected)
 }
 int recover_operations(Catalog *c)
 {
-    sqlite3_stmt *s = sql_prepare(
-        c, "SELECT id,kind,src,dst,temp,hash FROM operations WHERE state='pending' ORDER BY id");
+    if (recover_target_removals(c))
+        return -1;
+    sqlite3_stmt *s =
+        sql_prepare(c, "SELECT id,kind,src,dst,temp,hash FROM operations WHERE state='pending' "
+                       "AND kind<>'remove' ORDER BY id");
     if (!s)
         return -1;
     typedef struct {

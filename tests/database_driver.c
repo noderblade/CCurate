@@ -1,5 +1,6 @@
 /* Fault injection uses disposable catalogs, never an existing user session. */
 #include "curator.h"
+#include "remove_target.h"
 #undef NDEBUG
 #include <assert.h>
 #include <fcntl.h>
@@ -113,6 +114,63 @@ int main(int argc, char **argv)
     assert(!strcmp(before, after));
     assert(!export_archive(&c));
     puts("failed export preserves the previous portable index: PASS");
+
+    assert(!copy_entry(&c, "original.txt", "Removal", 0));
+    atomic_store(&c.cancel, 1);
+    assert(remove_target_copy(&c, "Removal/original.txt") == -1);
+    atomic_store(&c.cancel, 0);
+    int fd = open_beneath(c.dfd, "Removal/original.txt", O_RDONLY, 0);
+    assert(fd >= 0);
+    close(fd);
+
+    commits = 0;
+    deny_at = 1;
+    sqlite3_set_authorizer(c.db, deny_commit, &deny_at);
+    assert(remove_target_copy(&c, "Removal/original.txt") == -1);
+    sqlite3_set_authorizer(c.db, NULL, NULL);
+    writer_available(&c);
+    fd = open_beneath(c.dfd, "Removal/original.txt", O_RDONLY, 0);
+    assert(fd >= 0);
+    close(fd);
+    Entry entry = {0};
+    assert(!load_entry(&c, "original.txt", &entry, 0));
+    assert(!strcmp(entry.state, "verified"));
+    entry_free(&entry);
+    puts("cancelled removal / failed intent commit leave the destination intact: PASS");
+
+    commits = 0;
+    deny_at = 2;
+    sqlite3_set_authorizer(c.db, deny_commit, &deny_at);
+    assert(remove_target_copy(&c, "Removal/original.txt") == -1);
+    sqlite3_set_authorizer(c.db, NULL, NULL);
+    writer_available(&c);
+    assert(open_beneath(c.dfd, "Removal/original.txt", O_RDONLY, 0) < 0);
+    assert(!load_entry(&c, "original.txt", &entry, 0));
+    assert(strcmp(entry.state, "verified"));
+    entry_free(&entry);
+    assert(!recover_operations(&c));
+    assert(!load_entry(&c, "original.txt", &entry, 0));
+    assert(!*entry.dest && !strcmp(entry.state, "missing"));
+    entry_free(&entry);
+    assert(!copy_entry(&c, "original.txt", "Recurated", 0));
+    puts("failed removal commit leaves a recoverable journal and never false verification: PASS");
+
+    commits = 0;
+    deny_at = 3; /* intent, mapping, then the JSONL export snapshot */
+    sqlite3_set_authorizer(c.db, deny_commit, &deny_at);
+    assert(remove_target_copy(&c, "Recurated/original.txt") == -1);
+    sqlite3_set_authorizer(c.db, NULL, NULL);
+    writer_available(&c);
+    sqlite3_stmt *pending = sql_prepare(&c, "SELECT COUNT(*) FROM operations WHERE kind='remove' "
+                                            "AND state='remove_export'");
+    assert(sqlite3_step(pending) == SQLITE_ROW && sqlite3_column_int(pending, 0) == 1);
+    sqlite3_finalize(pending);
+    assert(!recover_operations(&c));
+    pending = sql_prepare(&c, "SELECT COUNT(*) FROM operations WHERE kind='remove' "
+                              "AND state='remove_export'");
+    assert(sqlite3_step(pending) == SQLITE_ROW && sqlite3_column_int(pending, 0) == 0);
+    sqlite3_finalize(pending);
+    puts("failed removal export stays pending until JSONL is repaired: PASS");
     catalog_close(&c);
     return 0;
 }

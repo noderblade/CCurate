@@ -52,6 +52,11 @@ static const Action actions[] = {
     {0, "Save session and exit", "F10",
      "Save pane locations, layout and scale; stop any worker safely and exit.", R_KEY_F10, 0, NULL,
      0},
+    {0, "Remove destination copy", "Ctrl+Delete",
+     "Select one indexed file in DESTINATION. Confirm removal after SHA-512 checks of both "
+     "copies. Refuse if no identical live source remains. Linked paths become unsecured; "
+     "source files, history and reviewed flags stay intact. Folders are not removed.",
+     0, 0, "remove", 0},
     {1, "Refresh this folder", "F9: refresh",
      "Check this source folder only. Reuse unchanged hashes and verify new or changed entries. "
      "Folders are also checked automatically when you enter them.",

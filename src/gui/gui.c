@@ -198,12 +198,20 @@ int gui_main(Catalog *c, int historical)
     Rpanel_set_spacing(box, 20);
     ui->prompt_label = Rlabel_create("");
     Rwidget_add_child(box, ui->prompt_label);
+    ui->remove_scroll = Rwidget_create(R_WIDGET_SCROLL_BOX);
+    ui->remove_label = Rlabel_create("");
+    Rlabel_set_wrap(ui->remove_label, 1);
+    Rwidget_add_child(ui->remove_scroll, ui->remove_label);
+    Rwidget_add_child(box, ui->remove_scroll);
+    Rwidget_set_visibility(ui->remove_scroll, R_COLLAPSED);
     ui->input = Rwidget_create(R_WIDGET_TEXT_INPUT);
     Rwidget_set_size(ui->input, 480, 40);
     Rwidget_add_child(box, ui->input);
     Rid buttons = Rwidget_create(R_WIDGET_HBOX);
     Rpanel_set_spacing(buttons, 12);
     Rid confirm = Rbutton_create("Confirm (Enter)"), cancel = Rbutton_create("Cancel (Esc)");
+    ui->prompt_confirm = confirm;
+    ui->prompt_cancel = cancel;
     Rbutton_set_clicked_callback(confirm, confirm_callback, ui);
     Rbutton_set_clicked_callback(cancel, cancel_callback, ui);
     Rwidget_set_tooltip(confirm, "Apply the value entered above.");
@@ -271,6 +279,8 @@ int gui_main(Catalog *c, int historical)
                 gui_pane_reload(ui, 0);
             }
             gui_pane_reload(ui, 1);
+            if (!strcmp(ui->job, "remove"))
+                gui_request_preview(ui, 1);
             gui_request_view(
                 ui, VIEW_DETAILS | (!lazy || atomic_load(&c->refresh_changed) ? VIEW_SUMMARY : 0));
             gui_save_ui(ui);

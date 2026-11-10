@@ -2,6 +2,7 @@
 #include "gui_browser.h"
 #include "gui_controller.h"
 #include "gui_state.h"
+#include "remove_target.h"
 #include "source_refresh.h"
 #include <errno.h>
 #include <fcntl.h>
@@ -130,6 +131,8 @@ static void *gui_job_run(void *data)
         }
     } else if (!strcmp(ui->job, "move"))
         rc = move_target(ui->c, ui->arg1, ui->arg2);
+    else if (!strcmp(ui->job, "remove"))
+        rc = remove_target_copy(ui->c, ui->arg1);
     else if (!strcmp(ui->job, "mkdir")) {
         rc = mkdir_beneath(ui->c->dfd, ui->arg1);
         if (rc)

@@ -103,6 +103,12 @@ contains retained entries; it does not turn all unreviewed clutter into history.
    while keeping historical mappings current. Filter to unsecured items to
    concentrate on what remains.
 
+   **Copied into the wrong place?** Use F6 to move it, or select the file in
+   Destination and choose **Files → Remove destination copy** (**Ctrl+Delete**).
+   Removal requires confirmation and a freshly SHA-512-verified live source
+   copy. All linked occurrences become unsecured again; their historical paths
+   and review decisions remain. Later, use F5 to copy the content elsewhere.
+
 6. **Audit and account for the remainder.** Before finalizing a live source, use
    Ctrl+R to refresh unvisited paths (Ctrl+Shift+R also forces every hash).
    Audit rereads destination content and
@@ -168,6 +174,7 @@ conversion or forced rehash for these changes.
 | `F5` | Copy from source to the current destination folder |
 | `Ctrl+F5` | Preserve a complete directory in retained history, including empty directories |
 | `F6` / `F7` | Move or rename a destination entry / create a destination folder |
+| `Ctrl+Delete` | Remove one indexed destination copy, after confirmation and source verification |
 | `F8` / `Shift+F8` | Reject / restore a source entry or subtree; **never delete it** |
 | `Ctrl+P` | Toggle the independent reviewed marker |
 | `Ctrl+F` | Show unsecured, non-rejected entries only |
@@ -294,6 +301,11 @@ directory to continue curation. See [archive format](FORMAT.md) and
   or Files > Open in default application opens the actual source/destination file.
   In history view it opens the retained destination copy. An external editor can
   modify that file; CCurate does not make it read-only for other applications.
+- **Destination removal is explicit and guarded.** It handles one indexed regular
+  file at a time, including an independently tracked empty file. It refuses
+  folders, symlinks, unindexed files, session files, offline use and a missing or
+  changed source with no matching duplicate. The confirmation defaults to Cancel.
+  It is not a recycle bin: recover the removed copy with F5 from the source.
 - **One physical copy per content hash.** Complete-directory mode preserves the
   historical structure and respects rejections. If content already lives
   elsewhere on the destination, it is reused without creating another file or

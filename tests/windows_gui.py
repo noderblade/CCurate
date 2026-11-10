@@ -99,6 +99,19 @@ with tempfile.TemporaryDirectory(prefix='ccurate-windows-gui-') as temporary:
                 with closing(sqlite3.connect(dest / '.ccurate/catalog.sqlite')) as db:
                     return db.execute("SELECT reviewed FROM entries WHERE path='document.txt'").fetchone() == (1,)
             until(reviewed)
+            key(0x09); key(0x24); key(0x28)  # Destination / Home / document after .ccurate.
+            key(0x2e, 0x11); snap('04-removal-confirmation', win)
+            key(0x0d)  # Default Cancel.
+            assert (dest / 'document.txt').exists()
+            key(0x2e, 0x11); key(0x09); key(0x0d)  # Explicit Remove copy.
+            until(lambda: not (dest / 'document.txt').exists())
+            until(lambda: 'remove.complete' in activity.read_text(errors='replace'))
+            key(0x74)
+            until(lambda: (dest / 'document.txt').exists())
+            assert (dest / 'document.txt').read_bytes() == original
+            assert reviewed()
+            print('PASS destination removal / default Cancel / source check / recopy', flush=True)
+            key(0x09)  # Source.
             key(0x70); snap('04-help', win); key(0x70)
             key(ord('H'), 0x11); snap('05-history', win)
             stop()

@@ -50,6 +50,28 @@ int gui_handle_event(Gui *ui, const REvent *e)
             gui_close_prompt(ui);
             return 1;
         }
+        if (ui->dialog == 9 && e->type == R_EVENT_KEY_DOWN) {
+            if (e->key == R_KEY_TAB || e->key == R_KEY_LEFT || e->key == R_KEY_RIGHT) {
+                gui_remove_focus(ui, !ui->remove_confirm);
+            } else if (e->key == R_KEY_UP || e->key == R_KEY_DOWN || e->key == R_KEY_PAGE_UP ||
+                       e->key == R_KEY_PAGE_DOWN || e->key == R_KEY_HOME || e->key == R_KEY_END) {
+                float x, y;
+                Rscroll_box_get_offset(ui->remove_scroll, &x, &y);
+                y = e->key == R_KEY_HOME  ? 0
+                    : e->key == R_KEY_END ? 1000000
+                                          : y + (e->key == R_KEY_UP        ? -30
+                                                 : e->key == R_KEY_DOWN    ? 30
+                                                 : e->key == R_KEY_PAGE_UP ? -120
+                                                                           : 120);
+                Rscroll_box_set_offset(ui->remove_scroll, 0, y);
+            } else if (e->key == R_KEY_ENTER || e->key == R_KEY_KP_ENTER || e->key == R_KEY_SPACE) {
+                if (ui->remove_confirm)
+                    gui_prompt_accept(ui);
+                else
+                    gui_close_prompt(ui);
+            }
+            return 1;
+        }
         if (e->type == R_EVENT_KEY_DOWN && (e->key == R_KEY_ENTER || e->key == R_KEY_KP_ENTER)) {
             gui_prompt_accept(ui);
             return 1;
@@ -296,6 +318,10 @@ int gui_handle_event(Gui *ui, const REvent *e)
             ui->prompt_source = xstrdup(t->path);
             gui_prompt(ui, 2, "Move on destination: new path from its root", t->path);
         }
+        return 1;
+    }
+    if (ctrl && k == R_KEY_DELETE) {
+        gui_remove_prompt(ui);
         return 1;
     }
     if (k == R_KEY_F7) {

@@ -25,6 +25,7 @@ static const char *help_text =
     "F5                  copy from RIGHT to LEFT\n"
     "Ctrl+F5             preserve complete directory\n"
     "F6                  move / rename on DESTINATION\n"
+    "Ctrl+Delete         remove selected DESTINATION copy (confirmation)\n"
     "F7                  new directory on DESTINATION\n"
     "F8 / Shift+F8       reject / restore source entry\n"
     "Ctrl+P              toggle reviewed flag\n"
@@ -69,7 +70,7 @@ static const char *help_text =
     "F9: refresh, scan, fullscan, audit, stats, balance, reconcile, export,\n"
     "history, filter, review, unreview, restore, hex, help, scale 200,\n"
     "log, logfilter, logfollow, themes, fonts, legend, open, sort, reverse,\n"
-    "columns, autofit, resetcolumns.\n"
+    "columns, autofit, resetcolumns, remove.\n"
     "Click a column header to sort; click again to reverse.\n"
     "Drag a header divider to resize; double-click it to fit visible rows.\n"
     "Scrollbars: drag thumb or click track; Shift+wheel pans.\n"
@@ -80,6 +81,10 @@ static const char *help_text =
     "External applications may modify the opened file.\n"
     "\n"
     "F8 never deletes data from the source drive.\n"
+    "Remove destination copy operates on one indexed regular file.\n"
+    "A live source copy must pass SHA-512 verification; otherwise removal\n"
+    "is refused. All linked occurrences become unsecured; history stays.\n"
+    "The removal dialog defaults to Cancel. Tab switches buttons.\n"
     "A complete directory preserves all retained paths\n"
     "in history, including empty directories. Each unique\n"
     "content still has only one physical destination copy.\n"
@@ -103,6 +108,14 @@ void gui_prompt(Gui *ui, int mode, const char *title, const char *text)
     ui->dialog = mode;
     float width = fminf(540, ui->width - 24);
     Rwidget_set_size(ui->prompt_box, width, 210);
+    Rwidget_set_visibility(ui->prompt_label, R_VISIBLE);
+    Rwidget_set_visibility(ui->remove_scroll, R_COLLAPSED);
+    Rwidget_set_size(ui->prompt_label, -1, -1);
+    Rlabel_set_wrap(ui->prompt_label, 0);
+    Rwidget_set_visibility(ui->input, R_VISIBLE);
+    Rbutton_set_text(ui->prompt_confirm, "Confirm (Enter)");
+    Rbutton_set_text(ui->prompt_cancel, "Cancel (Esc)");
+    Rwidget_set_tooltip(ui->prompt_confirm, "Apply the value entered above.");
     Rwidget_set_size(ui->input, width - 60, 40);
     Rlabel_set_text(ui->prompt_label, title);
     Rtext_input_set_text(ui->input, text ? text : "");
@@ -116,6 +129,63 @@ void gui_close_prompt(Gui *ui)
     ui->dialog = 0;
     Rwidget_set_visibility(ui->prompt_box, R_COLLAPSED);
     Rwidget_focus(ui->canvas);
+}
+
+void gui_remove_focus(Gui *ui, int confirm)
+{
+    ui->remove_confirm = confirm;
+    Rbutton_set_text(ui->prompt_confirm, confirm ? "Remove copy (Enter)" : "Remove copy");
+    Rbutton_set_text(ui->prompt_cancel, confirm ? "Cancel (Esc)" : "Cancel (Enter / Esc)");
+    Rwidget_focus(confirm ? ui->prompt_confirm : ui->prompt_cancel);
+}
+
+void gui_remove_prompt(Gui *ui)
+{
+    if (gui_operation_busy(ui)) {
+        gui_notice(ui, "Wait for the operation to finish before removing a destination copy.");
+        return;
+    }
+    if (ui->focus != 0) {
+        gui_notice(ui, "Select a file in DESTINATION first. Source files cannot be removed.");
+        return;
+    }
+    Entry *e = gui_selected(ui->pane);
+    if (!e || strcmp(e->kind, "file") || !*e->state || descendant(e->path, META_DIR)) {
+        gui_notice(ui, "Select one indexed regular destination file; folders cannot be removed.");
+        return;
+    }
+    if (ui->c->readonly || ui->c->sfd < 0) {
+        gui_notice(ui, "Connect the live source before removing a destination copy.");
+        return;
+    }
+    free(ui->prompt_source);
+    ui->prompt_source = xstrdup(e->path);
+    char *path = display_path(e->path);
+    char *label = fmt("Remove destination copy?\n\n%s\n\n"
+                      "One file will be removed from DESTINATION.\n"
+                      "Its linked source paths will become unsecured.\n"
+                      "Source files, history and reviewed flags stay intact.\n\n"
+                      "Removal requires an identical live source copy (SHA-512).\n"
+                      "Cancel is selected initially.\n"
+                      "Tab switches buttons; (Enter) marks the active action.\n"
+                      "Up/Down or PgUp/PgDn scroll this message.",
+                      path);
+    gui_prompt(ui, 9, label, "");
+    float width = fminf(760, ui->width - 24);
+    float height = fminf(360, ui->height - 24);
+    Rwidget_set_size(ui->prompt_box, width, height);
+    Rwidget_set_visibility(ui->prompt_label, R_COLLAPSED);
+    Rwidget_set_size(ui->remove_scroll, width - 48, height - 100);
+    Rwidget_set_size(ui->remove_label, width - 68, -1);
+    Rlabel_set_text(ui->remove_label, label);
+    Rscroll_box_set_offset(ui->remove_scroll, 0, 0);
+    Rwidget_set_visibility(ui->remove_scroll, R_VISIBLE);
+    Rwidget_set_visibility(ui->input, R_COLLAPSED);
+    Rwidget_set_tooltip(ui->prompt_confirm,
+                        "Verify both copies with SHA-512, then remove only the destination file.");
+    gui_remove_focus(ui, 0);
+    free(label);
+    free(path);
 }
 
 void gui_command(Gui *ui, const char *s)
@@ -144,6 +214,8 @@ void gui_command(Gui *ui, const char *s)
         gui_set_sort(ui, side, sort & SORT_COLUMN_MASK, !(sort & SORT_DESC));
     } else if (!strcmp(s, "open"))
         gui_open_selected(ui);
+    else if (!strcmp(s, "remove"))
+        gui_remove_prompt(ui);
     else if (!strcmp(s, "scan"))
         gui_start_job(ui, "scan", NULL, NULL, 0);
     else if (!strcmp(s, "fullscan"))
@@ -229,7 +301,9 @@ void gui_prompt_accept(Gui *ui)
     char *text = xstrdup(Rtext_input_get_text(ui->input));
     int mode = ui->dialog;
     gui_close_prompt(ui);
-    if (mode == 1) {
+    if (mode == 9)
+        gui_start_job(ui, "remove", ui->prompt_source, NULL, 0);
+    else if (mode == 1) {
         char *path = join_path(ui->pane[0].path, text);
         if (valid_relative(path, 0) && !descendant(path, META_DIR))
             gui_start_job(ui, "mkdir", path, NULL, 0);

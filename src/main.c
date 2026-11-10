@@ -1,4 +1,5 @@
 #include "curator.h"
+#include "remove_target.h"
 #include "source_refresh.h"
 #ifdef CCURATE_GUI
 #include "desktop_open.h"
@@ -40,6 +41,7 @@ static void usage(void)
          "  review|unreview|reject|restore SOURCE_REL\n"
          "  mkdir TARGET_REL             create destination directory\n"
          "  move OLD_TARGET_REL NEW_TARGET_REL\n"
+         "  remove TARGET_REL --confirm   remove one copy after live source verification\n"
          "  list [SOURCE_DIR] [--history] [--unsecured]\n"
          "  info SOURCE_REL              locations / duplicates / versions\n"
          "  audit | reconcile | stats | balance | export\n"
@@ -166,7 +168,12 @@ int main(int argc, char **argv)
         rc = mark_entries(&c, argv[arg], cmd);
     else if (!strcmp(cmd, "move") && argc >= arg + 2)
         rc = move_target(&c, argv[arg], argv[arg + 1]);
-    else if (!strcmp(cmd, "mkdir") && argc > arg) {
+    else if (!strcmp(cmd, "remove")) {
+        if (argc != arg + 2 || strcmp(argv[arg + 1], "--confirm"))
+            rc = fail(&c, "Use: remove TARGET_REL --confirm (one indexed destination file)");
+        else
+            rc = remove_target_copy(&c, argv[arg]);
+    } else if (!strcmp(cmd, "mkdir") && argc > arg) {
         if (!valid_relative(argv[arg], 0) || descendant(argv[arg], META_DIR))
             rc = fail(&c, "Invalid directory");
         else

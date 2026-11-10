@@ -48,7 +48,7 @@ with tempfile.TemporaryDirectory(prefix='ccurate-new-ui-') as t:
    until(focus_window)
    until(lambda: 'operation.finish' in log.read_text()); time.sleep(.6)
    def click(x,y): xd('mousemove',x,y); xd('click',1); time.sleep(.2)
-   counts=[8,7,18,8,8,11,4]
+   counts=[9,7,18,8,8,11,4]
    def menu(group,row):
     click(12+(group+1.5)*237,1180)
     h=42+counts[group]*29+100

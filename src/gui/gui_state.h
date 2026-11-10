@@ -30,6 +30,9 @@ struct GuiPane {
 struct Gui {
     Catalog *c, reader;
     Rid window, canvas, overlay, prompt_box, prompt_label, input, font, texture;
+    Rid prompt_confirm, prompt_cancel;
+    Rid remove_scroll, remove_label;
+    int remove_confirm;
     FontService *font_service;
     MonoFonts *fonts;
     char *font_file, *font_family, *font_style;

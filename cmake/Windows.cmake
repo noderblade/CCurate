@@ -24,7 +24,7 @@ set(CCURATE_WINDOWS_FILES
  src/platform/windows/preview_windows.c
 )
 add_executable(ccurate WIN32
- src/main.c src/util.c src/activity.c src/catalog.c src/operations.c src/preview.c src/view.c src/view_cache.c
+ src/main.c src/util.c src/activity.c src/catalog.c src/operations.c src/remove_target.c src/preview.c src/view.c src/view_cache.c
  src/platform/windows/source_access_windows.c
  src/platform/windows/main_windows.c src/platform/windows/ccurate.rc
  ${CCURATE_WINDOWS_FILES}
@@ -79,7 +79,7 @@ target_link_libraries(diagnosticscheck PRIVATE shell32 user32)
 enable_testing()
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
 add_executable(databasecheck tests/database_driver.c src/catalog.c src/util.c src/activity.c
- src/operations.c src/platform/windows/source_access_windows.c
+ src/operations.c src/remove_target.c src/platform/windows/source_access_windows.c
  src/platform/windows/fs_windows.c src/platform/windows/metadata_windows.c)
 target_include_directories(databasecheck PRIVATE include)
 target_compile_definitions(databasecheck PRIVATE _GNU_SOURCE _FILE_OFFSET_BITS=64
@@ -92,6 +92,8 @@ add_test(NAME windows_startup COMMAND ${Python3_EXECUTABLE}
  ${CMAKE_CURRENT_SOURCE_DIR}/tests/windows_startup.py $<TARGET_FILE:ccurate> $<BOOL:${CCURATE_GUI}> $<TARGET_FILE:diagnosticscheck>)
 add_test(NAME windows_integration COMMAND ${Python3_EXECUTABLE}
  ${CMAKE_CURRENT_SOURCE_DIR}/tests/windows_integration.py $<TARGET_FILE:ccurate>)
+add_test(NAME destination_removal COMMAND ${Python3_EXECUTABLE}
+ ${CMAKE_CURRENT_SOURCE_DIR}/tests/removal.py $<TARGET_FILE:ccurate>)
 if(CCURATE_MEDIA)
  add_executable(previewcheck WIN32 tests/preview_driver.c src/util.c src/activity.c src/preview.c
   src/preview_jpeg.c src/platform/windows/preview_media_windows.c

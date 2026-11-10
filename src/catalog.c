@@ -1355,7 +1355,7 @@ char *entry_details_page(Catalog *c, const Entry *e, int page)
     if (*e->hash) {
         p = display_path(e->dest);
         badd(&b, "\nDESTINATION COPY [%s]:\n%s\n", *e->state ? e->state : "missing",
-             *p ? p : "not copied yet");
+             *p ? p : "No destination copy");
         free(p);
     }
     if (!strcmp(e->kind, "file") && e->size == 0 && !e->pending)
@@ -1370,8 +1370,10 @@ char *entry_details_page(Catalog *c, const Entry *e, int page)
         sqlite3_bind_int64(s, 2, (int64_t)page * 256);
         while (sqlite3_step(s) == SQLITE_ROW) {
             p = display_path((char *)sqlite3_column_text(s, 0));
-            badd(&b, "%s %s%s%s%s\n", sqlite3_column_int(s, 3) ? "[OK]" : "[ ]", p,
-                 sqlite3_column_int(s, 2) ? " [rejected]" : "",
+            badd(&b, "%s %s%s%s%s\n",
+                 sqlite3_column_int(s, 3) && !strcmp(e->state, "verified") && *e->dest ? "[OK]"
+                                                                                       : "[ ]",
+                 p, sqlite3_column_int(s, 2) ? " [rejected]" : "",
                  !sqlite3_column_int(s, 1) ? " [absent]" : "",
                  !sqlite3_column_int(s, 4) ? " [older version]" : "");
             free(p);
@@ -1435,14 +1437,16 @@ char *entry_details_page(Catalog *c, const Entry *e, int page)
     }
     badd(&b, "\nRETAINED VERSIONS AT THIS PATH (Ctrl+V in history):\n");
     s = sql_prepare(
-        c, "SELECT v.id,v.mtime,COALESCE(z.dest,o.dest) FROM versions v LEFT JOIN objects o ON "
-           "o.hash=v.hash AND v.size>0 LEFT JOIN empty_copies z ON z.version=v.id WHERE v.eid=? "
-           "AND v.accepted=1 ORDER BY v.id DESC");
+        c,
+        "SELECT v.id,v.mtime,COALESCE(z.dest,o.dest),v.mode FROM versions v LEFT JOIN objects o ON "
+        "o.hash=v.hash AND v.size>0 LEFT JOIN empty_copies z ON z.version=v.id WHERE v.eid=? "
+        "AND v.accepted=1 ORDER BY v.id DESC");
     sqlite3_bind_int64(s, 1, e->id);
     while (sqlite3_step(s) == SQLITE_ROW) {
         date_text(sqlite3_column_int64(s, 1), mt);
-        p = display_path((char *)sqlite3_column_text(s, 2) ? (char *)sqlite3_column_text(s, 2)
-                                                           : "metadata");
+        p = display_path((char *)sqlite3_column_text(s, 2)   ? (char *)sqlite3_column_text(s, 2)
+                         : S_ISREG(sqlite3_column_int(s, 3)) ? "No destination copy"
+                                                             : "metadata");
         badd(&b, "v%lld  %s  %s\n", (long long)sqlite3_column_int64(s, 0), mt, p);
         free(p);
     }
@@ -1699,9 +1703,9 @@ int export_archive(Catalog *c)
     if (step != SQLITE_DONE)
         goto query_failed;
     sqlite3_finalize(s);
-    /* Operational decisions remain in the session; archive history includes only placements. */
+    /* Operational decisions remain in the session; archive history includes placements/removals. */
     s = sql_prepare(c, "SELECT id,time,op,src,dst,hash FROM events WHERE op IN "
-                       "('copy','reuse','move','recover') ORDER BY id");
+                       "('copy','reuse','move','recover','remove') ORDER BY id");
     if (!s)
         goto failed;
     while ((step = sqlite3_step(s)) == SQLITE_ROW) {

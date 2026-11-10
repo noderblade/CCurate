@@ -1,7 +1,39 @@
 # Validation
 
-CCurate 0.1.0 plus the Windows port and scan/empty-file fixes, validation updated 7 November 2026.
+CCurate 0.1.0, including destination-copy removal and the Windows port.
 Linux remains the primary platform.
+
+## Destination copy removal
+
+The local Linux regression run passed all **19 suites**, including both full
+GUI/media and core-only configurations (eight CTest cases each), large-catalog
+stress, live scan, previews, desktop opening and ten native-window scripts.
+The removal and database-recovery suites also pass with AddressSanitizer and
+UndefinedBehaviorSanitizer. Leak detection was disabled because LeakSanitizer
+cannot run under this environment's process tracing; this is not a leak test.
+
+`tests/removal.py` contains 18 portable real-file cases: duplicate status and
+balance, recopy, preserved decisions/history, required confirmation, live-source
+and destination edits, archived-only versions, independent empty files, invalid
+paths, busy writers, offline refusal, staged recovery, naming collisions,
+post-unlink recovery and JSONL import/export recovery. Its symlink case runs on
+Linux; native Windows skips it when optional symlink privileges are unavailable.
+
+`tests/removal_faults.py` gates real rename/unlink calls in a disposable Linux
+process. Seven scenarios exercise hard kills before/after unlink, cancellation,
+source edits, a newly opened writer, staged destination edits and replacement of
+the original destination name. The application contains no test gates. SQLite
+authorizer tests additionally fail the intent, mapping and JSONL-export commits.
+
+`tests/gui_removal.py` exercises source-focus refusal, default Cancel, keyboard
+confirmation, mouse menu/tooltips/buttons, F9, F5 recopy, help and scrolling at
+400% scale. Confirmation, cleared statuses and updated remaining bytes are
+visually checked in a native Raven window.
+
+The portable removal suite is registered for both Windows build configurations;
+the Windows native-window smoke test also removes and recopies a fixture. The
+new Windows checks run in GitHub Actions. The local results above do not imply
+a native Windows result; check the workflow for the revision being installed.
 
 ## Column resizing and legend update
 

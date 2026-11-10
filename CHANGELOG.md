@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- Add Remove destination copy to Files, Ctrl+Delete, F9 and the CLI. Require
+  confirmation plus fresh SHA-512 checks of the destination and a live source
+  occurrence; refuse deletion of archived-only versions and modified content.
+- Detach all affected content mappings without losing retained paths or review
+  decisions; update unsecured status, balance, occurrence details and JSONL events.
+  Keep empty-file copies independent. Journal and recover interrupted removals
+  without continuing a deletion on startup.
+- Cover removal/refusal/recopy/recovery on Linux and Windows, failed database
+  commits, and the native GUI confirmation's default Cancel, menu and shortcuts.
+
 - Close statistics-test SQLite connections explicitly before fixture cleanup,
   fixing Windows `WinError 32` failures in the full and core regression suites.
 

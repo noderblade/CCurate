@@ -7,6 +7,8 @@
 void gui_notice(Gui *ui, const char *s);
 void gui_prompt(Gui *ui, int mode, const char *title, const char *text);
 void gui_close_prompt(Gui *ui);
+void gui_remove_prompt(Gui *ui);
+void gui_remove_focus(Gui *ui, int confirm);
 void gui_command(Gui *ui, const char *s);
 void gui_prompt_accept(Gui *ui);
 void gui_layout_prompt(Gui *ui);

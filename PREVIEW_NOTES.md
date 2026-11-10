@@ -1,10 +1,46 @@
-# Column resizing and status-legend notes
+# Remove destination copy change notes
 
-Date: 2026-11-10. Base: `a886b435d3ca7860094a625e1830f367234581c6`.
-These notes describe the column-sizing changes relative to the base commit.
-The Windows download is published only after the full build/test workflow passes.
+Base: `9f4df55a0f9ac9e9f15b942ca89b88f8176f0604`.
+These notes describe the removal feature relative to the base commit.
+Windows downloads are published only after the build and test workflow passes.
+Linux remains primary. Build instructions below reuse the existing session.
 
 ## What changed
+
+Select one indexed regular file in Destination and use **Files > Remove
+destination copy**, **Ctrl+Delete**, or F9 **`remove`**. The confirmation defaults
+to Cancel and supports mouse and keyboard. Its message scrolls at large UI scales
+or with long paths while the buttons remain visible.
+
+The worker verifies the destination SHA-512 and searches the recorded occurrences
+for an identical, stable live source file. It refuses removal when the source is
+missing, changed, open for writing or unavailable and no other matching occurrence
+can be verified. It also refuses modified destination bytes, directories,
+symlinks, unindexed files and session files. Source operations stay read-only.
+
+Successful removal detaches the content mapping: all linked occurrences become
+unsecured, the remaining-byte estimate updates, and a later F5 can place the
+content elsewhere. Empty-file copies remain independent. Historical paths,
+metadata, reviewed flags and rejection decisions stay in the catalog. JSONL and
+Activity include a removal event; Details no longer labels accepted but unsecured
+occurrences as `[OK]`.
+
+Removal journals intent before staging beside the target, checks the staged file
+again, deletes it, then commits the mapping change. An interrupted operation
+restores staged bytes instead of resuming deletion. Recovery never overwrites a
+new file at the old name; it retains both and records the recovery location.
+Pending JSONL publication survives a crash after the SQLite commit.
+
+The source is live, not frozen by a filesystem snapshot; verification cannot
+prevent subsequent external edits. There is no recycle bin. Recovery uses the
+retained source and F5. The operation targets one focused destination file at a
+time, including an independent 0-byte file; it is not recursive deletion.
+
+CLI: `ccurate --cli SOURCE DESTINATION remove TARGET_REL --confirm`.
+See [USER_GUIDE.md](USER_GUIDE.md#remove-destination-copy) for details and
+[TESTING.md](TESTING.md#destination-copy-removal) for validation and platform scope.
+
+## Included column sizing and legend behavior
 
 The status legend in F1 and Help now explains `counting...`: secured/eligible
 descendant counts are calculated from the catalog in the background, without
@@ -27,7 +63,7 @@ that do not fit inside the pane.
 ## Included baseline behavior
 
 The following lazy-resume, navigation and statistics changes are already part of
-the base commit. They are retained in this preview.
+the base commit. They remain available with this change.
 
 Existing sessions now open their saved catalog without a whole-drive scan. A new
 session still starts its initial scan automatically. Each source-folder visit
