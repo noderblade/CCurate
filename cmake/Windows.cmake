@@ -24,7 +24,7 @@ set(CCURATE_WINDOWS_FILES
  src/platform/windows/preview_windows.c
 )
 add_executable(ccurate WIN32
- src/main.c src/util.c src/activity.c src/catalog.c src/operations.c src/remove_target.c src/preview.c src/view.c src/view_cache.c
+ src/main.c src/util.c src/activity.c src/catalog.c src/operations.c src/remove_target.c src/preview.c src/view.c src/view_cache.c src/target_details.c
  src/platform/windows/source_access_windows.c
  src/platform/windows/main_windows.c src/platform/windows/ccurate.rc
  ${CCURATE_WINDOWS_FILES}
@@ -113,3 +113,15 @@ install(TARGETS ccurate RUNTIME DESTINATION bin)
 target_sources(ccurate PRIVATE src/source_refresh.c)
 add_test(NAME statistics COMMAND ${Python3_EXECUTABLE}
  ${CMAKE_CURRENT_SOURCE_DIR}/tests/statistics.py $<TARGET_FILE:ccurate>)
+
+add_executable(inspectioncheck tests/inspection_driver.c src/catalog.c src/util.c src/activity.c
+ src/operations.c src/remove_target.c src/view.c src/view_cache.c src/target_details.c
+ src/platform/windows/source_access_windows.c src/platform/windows/fs_windows.c
+ src/platform/windows/metadata_windows.c)
+target_include_directories(inspectioncheck PRIVATE include)
+target_compile_definitions(inspectioncheck PRIVATE _GNU_SOURCE _FILE_OFFSET_BITS=64
+ _WIN32_WINNT=0x0a00 WINVER=0x0a00)
+target_compile_options(inspectioncheck PRIVATE -Wall -Wextra -Wformat=2)
+target_link_libraries(inspectioncheck PRIVATE OpenSSL::Crypto PkgConfig::SQLITE Threads::Threads bcrypt advapi32)
+add_test(NAME destination_inspection COMMAND ${Python3_EXECUTABLE}
+ ${CMAKE_CURRENT_SOURCE_DIR}/tests/destination_inspection.py $<TARGET_FILE:ccurate> $<TARGET_FILE:inspectioncheck>)

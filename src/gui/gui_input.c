@@ -119,7 +119,7 @@ int gui_handle_event(Gui *ui, const REvent *e)
             }
         int side = gui_pane_at(g, e->x, e->y);
         if (side >= 0)
-            ui->focus = side;
+            gui_set_focus(ui, side);
         if (side >= 0 && side < 2) {
             GuiPane *p = ui->pane + side;
             GuiRect r = g.pane[side];
@@ -139,8 +139,7 @@ int gui_handle_event(Gui *ui, const REvent *e)
                 p->selected = row;
                 if (e->modifiers & R_MOD_CTRL)
                     gui_toggle_mark(p, gui_selected_index(p));
-                if (side)
-                    gui_request_preview(ui, 1);
+                gui_request_preview(ui, 1);
                 if (e->clicks == 2)
                     gui_open_selected(ui);
             }
@@ -157,7 +156,7 @@ int gui_handle_event(Gui *ui, const REvent *e)
         int side = gui_pane_at(g, e->x, e->y);
         if (side < 0)
             return 0;
-        ui->focus = side;
+        gui_set_focus(ui, side);
         int delta = (int)roundf(e->wheel_y * 3);
         if (!delta)
             delta = e->wheel_y > 0 ? 1 : -1;
@@ -219,7 +218,7 @@ int gui_handle_event(Gui *ui, const REvent *e)
     if (e->type != R_EVENT_KEY_DOWN)
         return 0;
     int ctrl = !!(e->modifiers & R_MOD_CTRL), shift = !!(e->modifiers & R_MOD_SHIFT);
-    GuiPane *p = ui->pane + (ui->focus == 0 ? 0 : 1);
+    GuiPane *p = ui->pane + ui->inspection_side;
     RKey k = e->key;
     if (ctrl && (k == R_KEY_ENTER || k == R_KEY_KP_ENTER)) {
         gui_open_selected(ui);
@@ -234,14 +233,14 @@ int gui_handle_event(Gui *ui, const REvent *e)
             gui_cancel_job(ui);
             gui_notice(ui, "Cancelling; completed and verified copies remain saved.");
         } else {
-            ui->focus = 1;
+            gui_set_focus(ui, ui->inspection_side);
             ui->help = 0;
             gui_request_preview(ui, 1);
         }
         return 1;
     }
     if (k == R_KEY_TAB) {
-        ui->focus = ui->focus == 0 ? 1 : 0;
+        gui_set_focus(ui, !ui->inspection_side);
         return 1;
     }
     if (ctrl && (e->modifiers & R_MOD_ALT) && (k == R_KEY_L || k == R_KEY_0)) {
@@ -373,13 +372,13 @@ int gui_handle_event(Gui *ui, const REvent *e)
         p->created = !p->created;
         int column = p->sort & SORT_COLUMN_MASK;
         if (column == SORT_MTIME || column == SORT_BTIME)
-            gui_set_sort(ui, ui->focus == 0 ? 0 : 1, p->created ? SORT_BTIME : SORT_MTIME,
+            gui_set_sort(ui, ui->inspection_side, p->created ? SORT_BTIME : SORT_MTIME,
                          p->sort & SORT_DESC);
         else
             gui_save_ui(ui);
         return 1;
     }
-    if (ctrl && k == R_KEY_V && ui->history) {
+    if (ctrl && k == R_KEY_V && ui->history && ui->inspection_side == 1) {
         gui_request_view(ui, VIEW_CYCLE);
         return 1;
     }
@@ -388,12 +387,11 @@ int gui_handle_event(Gui *ui, const REvent *e)
         return 1;
     }
     if (k == R_KEY_F3 && !ctrl) {
-        ui->focus = ui->focus == 2 ? 1 : 2;
+        gui_set_focus(ui, ui->focus == 2 ? ui->inspection_side : 2);
         return 1;
     }
     if (ctrl && (k == R_KEY_F3 || k == R_KEY_F6)) {
-        gui_set_sort(ui, ui->focus == 0 ? 0 : 1, k == R_KEY_F6 ? SORT_SIZE : SORT_NAME,
-                     k == R_KEY_F6);
+        gui_set_sort(ui, ui->inspection_side, k == R_KEY_F6 ? SORT_SIZE : SORT_NAME, k == R_KEY_F6);
         return 1;
     }
     if (ctrl && (e->modifiers & R_MOD_ALT) && (k == R_KEY_PAGE_DOWN || k == R_KEY_PAGE_UP)) {
@@ -407,7 +405,7 @@ int gui_handle_event(Gui *ui, const REvent *e)
         return 1;
     }
     if (ctrl && (k == R_KEY_PAGE_DOWN || k == R_KEY_PAGE_UP)) {
-        int side = ui->focus == 0 ? 0 : 1;
+        int side = ui->inspection_side;
         int next = p->page + (k == R_KEY_PAGE_DOWN ? 1 : -1);
         if (next >= 0 && (int64_t)next * VIEW_PAGE_SIZE < p->total)
             gui_change_page(ui, side, next, k == R_KEY_PAGE_UP);
@@ -474,8 +472,7 @@ int gui_handle_event(Gui *ui, const REvent *e)
             gui_toggle_mark(p, i);
         if (k == R_KEY_INSERT && p->selected + 1 < gui_row_count(p))
             p->selected++;
-        if (ui->focus == 1)
-            gui_request_preview(ui, 1);
+        gui_request_preview(ui, 1);
         return 1;
     }
     if (k == R_KEY_KP_MULTIPLY || (k == R_KEY_8 && shift)) {
@@ -483,7 +480,7 @@ int gui_handle_event(Gui *ui, const REvent *e)
             gui_toggle_mark(p, i);
         return 1;
     }
-    int side = ui->focus == 0 ? 0 : 1;
+    int side = ui->inspection_side;
     if ((k == R_KEY_DOWN || k == R_KEY_PAGE_DOWN) && p->selected >= gui_row_count(p) - 1 &&
         (int64_t)(p->page + 1) * VIEW_PAGE_SIZE < p->total) {
         gui_change_page(ui, side, p->page + 1, 0);
@@ -523,7 +520,6 @@ int gui_handle_event(Gui *ui, const REvent *e)
     if (p->selected >= gui_row_count(p))
         p->selected = gui_row_count(p) > 0 ? gui_row_count(p) - 1 : 0;
     gui_scroll_selection(ui, p);
-    if (ui->focus == 1)
-        gui_request_preview(ui, 1);
+    gui_request_preview(ui, 1);
     return 1;
 }

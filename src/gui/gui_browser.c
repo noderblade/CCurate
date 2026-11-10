@@ -31,12 +31,21 @@ int gui_selected_index(GuiPane *p)
     return p->selected - (*p->path ? 1 : 0);
 }
 
+void gui_set_focus(Gui *ui, int focus)
+{
+    ui->focus = focus;
+    if (focus < 2 && ui->inspection_side != focus) {
+        ui->inspection_side = focus;
+        gui_request_preview(ui, 1);
+    }
+}
+
 void gui_request_view(Gui *ui, unsigned flags)
 {
     if (!ui->view)
         return;
     ui->view_dirty |= flags;
-    Entry *e = gui_selected(ui->pane + 1);
+    Entry *e = gui_selected(ui->pane + ui->inspection_side);
     ViewRequest r = {.flags = ui->view_dirty,
                      .refresh_summary = !!(flags & (VIEW_SUMMARY | VIEW_BALANCE)),
                      .historical = ui->history,
@@ -44,6 +53,7 @@ void gui_request_view(Gui *ui, unsigned flags)
                      .fast = gui_operation_busy(ui),
                      .target_refresh = ui->target_refresh,
                      .occurrence_page = ui->occurrence_page,
+                     .detail_destination = ui->inspection_side == 0,
                      .detail_path = e ? e->path : "",
                      .detail_version = e ? e->version : 0};
     for (int i = 0; i < 2; i++) {
@@ -168,9 +178,10 @@ static void gui_apply_pane(Gui *ui, int side, ViewResult *r)
 
 static char *gui_selection_signature(Gui *ui)
 {
-    Entry *e = gui_selected(ui->pane + 1);
-    return e ? fmt("%s|%lld|%s|%s|%d|%d|%d|%d", e->path, (long long)e->version, e->dest, e->state,
-                   e->copies, e->reviewed, e->discarded, e->accepted)
+    Entry *e = gui_selected(ui->pane + ui->inspection_side);
+    return e ? fmt("%s|%lld|%s|%s|%d|%d|%d|%d|%lld|%lld|%lld|%s", e->path, (long long)e->version,
+                   e->dest, e->state, e->copies, e->reviewed, e->discarded, e->accepted,
+                   (long long)e->size, (long long)e->mtime, (long long)e->mode, e->hash)
              : xstrdup("");
 }
 
@@ -234,7 +245,7 @@ void gui_change_page(Gui *ui, int side, int page, int end)
     p->marked = NULL;
     p->n = 0;
     gui_pane_reload(ui, side);
-    if (side)
+    if (side == ui->inspection_side)
         gui_request_preview(ui, 1);
 }
 
@@ -272,7 +283,7 @@ void gui_navigate(Gui *ui, int side, const char *path)
     if (side)
         gui_refresh_folder(ui);
     gui_pane_reload(ui, side);
-    if (side)
+    if (side == ui->inspection_side)
         gui_request_preview(ui, 1);
 }
 
@@ -290,7 +301,8 @@ void gui_enter_directory(Gui *ui, int side)
         char *path = xstrdup(e->path);
         gui_navigate(ui, side, path);
         free(path);
-    } else if (side) {
+    } else if (e) {
+        gui_set_focus(ui, side);
         ui->focus = 2;
         gui_request_preview(ui, 1);
     }

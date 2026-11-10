@@ -209,7 +209,8 @@ int gui_columns_event(Gui *ui, const REvent *event)
     ui->splitter_hover = 0;
     Rwidget_set_cursor(ui->canvas, R_CURSOR_RESIZE_H);
     if (event->type == R_EVENT_MOUSE_DOWN) {
-        ui->focus = ui->column_side = side;
+        gui_set_focus(ui, side);
+        ui->column_side = side;
         ui->column_index = column;
         if (event->clicks == 2) {
             gui_columns_autofit(ui, side, column);

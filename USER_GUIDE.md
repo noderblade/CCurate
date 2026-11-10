@@ -194,6 +194,21 @@ to the beginning/end of the full list. The vertical scrollbar spans the whole
 directory and loads the required page in the background. Marked selections survive
 page changes within the same directory. Filtering and sorting apply to the whole directory.
 Occurrence details use pages of 256 records, switched with Ctrl+Alt+PgUp/PgDn.
+
+Preview and Details follow the last focused file browser: **Destination** on the
+left, or **Source / History** on the right. Click a row or press **Tab** to switch;
+the lower-panel headings identify the context. Moving into Preview, Details,
+Activity, menus or dialogs preserves it. **F3** toggles between Preview and that
+file pane; **Esc** returns there when no operation is being cancelled.
+
+Destination previews read the actual destination file, including unindexed files.
+Destination details show its full path, size, dates and permissions read from disk,
+plus the indexed copy state, last verification, stored SHA-512 and paged source
+occurrences. Source review, rejection and presence flags come from the catalog
+snapshot. Empty files show only their own original paths, never other empty files.
+Directories show their own metadata; select a contained file for its provenance.
+An indexed hash is not a new verification: use **Audit** to detect content changes.
+This inspection also works in archive browse mode without the source drive.
 Recursive directory counters are calculated after list rows become available.
 A `counting...` placeholder does not prevent entering a folder or returning to its
 parent. Recent source/history pages are cached (up to 32 pages / 16 MiB of row

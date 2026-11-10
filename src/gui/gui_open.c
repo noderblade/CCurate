@@ -7,7 +7,7 @@
 
 void gui_open_selected(Gui *ui)
 {
-    int side = ui->focus == 0 ? 0 : 1;
+    int side = ui->inspection_side;
     Entry *entry = gui_selected(ui->pane + side);
     if (!entry || !strcmp(entry->kind, "directory")) {
         gui_enter_directory(ui, side);

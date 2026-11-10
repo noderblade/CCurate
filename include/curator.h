@@ -92,7 +92,7 @@ typedef struct {
     unsigned flags;
     char *path[2], *search[2], *anchor[2], *detail_path;
     int page[2], sort[2], historical, unsecured, fast, target_refresh, occurrence_page;
-    int refresh_summary;
+    int refresh_summary, detail_destination;
     int64_t detail_version;
 } ViewRequest;
 typedef struct {

@@ -1,6 +1,7 @@
 /* All catalog queries, directory IO and UI-setting writes are off the Raven thread.
  * Latest-request-wins cancellation prevents stale results replacing a newer view. */
 #include "curator.h"
+#include "target_details.h"
 #include "view_cache.h"
 #include <dirent.h>
 #include <fcntl.h>
@@ -286,7 +287,7 @@ static ViewResult *query(ViewService *s, ViewRequest *r)
     }
     if (r->flags & VIEW_RIGHT)
         r->page[1] = out->page[1];
-    if (!interrupted(s) && (r->flags & VIEW_CYCLE) && *r->detail_path) {
+    if (!interrupted(s) && (r->flags & VIEW_CYCLE) && !r->detail_destination && *r->detail_path) {
         sqlite3_stmt *q = sql_prepare(
             c, "SELECT COALESCE(MAX(CASE WHEN v.id<? THEN v.id END),MAX(v.id)) "
                "FROM versions v JOIN entries e ON e.id=v.eid WHERE e.path=? AND v.accepted=1");
@@ -298,6 +299,10 @@ static ViewResult *query(ViewService *s, ViewRequest *r)
             load_version(c, r->detail_path, version, &out->cycle);
     }
     if (!interrupted(s) && (r->flags & VIEW_DETAILS) && *r->detail_path) {
+        if (r->detail_destination) {
+            out->details = target_details_page(c, r->detail_path, r->occurrence_page);
+            return out;
+        }
         Entry e = {0};
         int rc = r->historical && r->detail_version
                      ? load_version(c, r->detail_path, r->detail_version, &e)

@@ -8,6 +8,7 @@
 int gui_row_count(const GuiPane *p);
 Entry *gui_selected(GuiPane *p);
 int gui_selected_index(GuiPane *p);
+void gui_set_focus(Gui *ui, int focus);
 void gui_request_view(Gui *ui, unsigned flags);
 void gui_toggle_mark(GuiPane *p, int row);
 void gui_clear_marks(GuiPane *p);

@@ -302,13 +302,15 @@ void gui_render(Gui *ui, RPainter *p, float w, float h)
                            1);
     }
     GuiRect pv = g.pane[2], dt = g.pane[3];
-    gui_text_clip(ui, p, pv.x + 12, pv.y + 9, pv.w - 24, 24,
-                  "PREVIEW | [ ] page / frame | Ctrl+X hex", GUI_COLOR(ui, muted),
+    const char *context = !ui->inspection_side ? "DESTINATION" : ui->history ? "HISTORY" : "SOURCE";
+    char heading[128];
+    snprintf(heading, sizeof(heading), "PREVIEW: %s | [ ] page / frame | Ctrl+X hex", context);
+    gui_text_clip(ui, p, pv.x + 12, pv.y + 9, pv.w - 24, 24, heading, GUI_COLOR(ui, muted),
                   ui->font_size - 1);
+    snprintf(heading, sizeof(heading), "DETAILS: %s / OCCURRENCES | Ctrl+D", context);
     gui_text_clip(ui, p, dt.x + 12, dt.y + 9, dt.w - 24, 24,
-                  ui->help ? "INFORMATION | arrows / PgUp / PgDn"
-                           : "DETAILS / OCCURRENCES | Ctrl+D",
-                  GUI_COLOR(ui, muted), ui->font_size - 1);
+                  ui->help ? "INFORMATION | arrows / PgUp / PgDn" : heading, GUI_COLOR(ui, muted),
+                  ui->font_size - 1);
     GuiRect preview_body = {pv.x + 12, pv.y + 40, fmaxf(1, pv.w - 32), fmaxf(1, pv.h - 58)};
     GuiRect details_body = {dt.x + 12, dt.y + 40, fmaxf(1, dt.w - 32), fmaxf(1, dt.h - 58)};
     if (ui->texture != R_INVALID_ID && ui->preview.width && ui->preview.height) {

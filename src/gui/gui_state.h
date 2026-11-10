@@ -46,6 +46,7 @@ struct Gui {
     DesktopOpen opener;
     char *open_path;
     int focus, history, filter, hex, page, dialog, preview_scroll, details_scroll, help;
+    int inspection_side; /* Last focused file pane; lower panels retain this context. */
     int preview_horizontal, details_horizontal, font_horizontal;
     GuiScrollbar scrollbars[GUI_SCROLLBARS];
     GuiTextCache text_cache[2];
@@ -64,6 +65,7 @@ struct Gui {
     char *details, *message, *prompt_source;
     Preview preview;
     int64_t preview_version;
+    int preview_side, preview_history;
     char *preview_path;
     pthread_t worker;
     atomic_int busy, finished;

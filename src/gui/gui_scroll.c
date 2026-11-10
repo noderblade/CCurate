@@ -54,14 +54,14 @@ static void apply(Gui *ui, int id, double value)
     bar->value = value;
     if (id < 4) {
         int side = id / 2;
-        ui->focus = side;
+        gui_set_focus(ui, side);
         if (id % 2)
             ui->pane[side].horizontal = (int)lround(value);
         else
             gui_seek_row(ui, side, (int64_t)llround(value));
     } else if (id < 8) {
         int side = id / 2;
-        ui->focus = side;
+        gui_set_focus(ui, side);
         int *offset = side == 2 ? (id % 2 ? &ui->preview_horizontal : &ui->preview_scroll)
                                 : (id % 2 ? &ui->details_horizontal : &ui->details_scroll);
         *offset = (int)lround(value);

@@ -97,7 +97,7 @@ static const Action actions[] = {
      "Enter a directory relative to the active drive root. Leave empty to go to its root.", R_KEY_G,
      R_MOD_CTRL, NULL, 0},
     {2, "Open selected directory", "Enter",
-     "Open the selected directory in the active pane; a source file focuses its preview.",
+     "Open the selected directory in the active pane; a file focuses that pane's preview.",
      R_KEY_ENTER, 0, NULL, 0},
     {2, "Parent directory", "Backspace", "Move up one directory in the active file pane.",
      R_KEY_BACKSPACE, 0, NULL, 0},
@@ -157,7 +157,8 @@ static const Action actions[] = {
     {3, "Focus destination", "Tab", "Activate the left file pane.", 0, 0, NULL, FOCUS_LEFT},
     {3, "Focus source", "Tab", "Activate the right file pane.", 0, 0, NULL, FOCUS_RIGHT},
     {4, "Focus preview", "F3",
-     "Focus the preview so arrow keys and Page Up / Down scroll its text.", R_KEY_F3, 0, NULL, 0},
+     "Inspect the active source or destination file. Arrow keys scroll; F3 returns to that pane.",
+     R_KEY_F3, 0, NULL, 0},
     {4, "Focus details / occurrences", "Ctrl+D",
      "Focus file metadata, duplicate locations and archived destination information.", R_KEY_D,
      R_MOD_CTRL, NULL, 0},
@@ -312,13 +313,13 @@ static void gui_action_run(Gui *ui)
     ui->footer_hover = -1;
     if (!a)
         return;
-    GuiPane *p = ui->pane + (ui->focus == 0 ? 0 : 1);
+    GuiPane *p = ui->pane + ui->inspection_side;
     if (a->command)
         gui_command(ui, a->command);
     else if (a->key) {
         if (ui->focus >= 2 && (a->key == R_KEY_ENTER || a->key == R_KEY_BACKSPACE ||
                                a->key == R_KEY_SPACE || a->key == R_KEY_KP_MULTIPLY))
-            ui->focus = 1;
+            gui_set_focus(ui, ui->inspection_side);
         REvent e = {.type = R_EVENT_KEY_DOWN, .key = a->key, .modifiers = a->modifiers};
         gui_handle_event(ui, &e);
         ui->filter_opener = 0; /* No subsequent TEXT event for a menu click. */
@@ -328,16 +329,16 @@ static void gui_action_run(Gui *ui)
             free(p->search);
             p->search = xstrdup("");
             p->page = 0;
-            gui_pane_reload(ui, ui->focus == 0 ? 0 : 1);
+            gui_pane_reload(ui, ui->inspection_side);
             break;
         case CLEAR_SELECTION:
             gui_clear_marks(p);
             break;
         case FOCUS_LEFT:
-            ui->focus = 0;
+            gui_set_focus(ui, 0);
             break;
         case FOCUS_RIGHT:
-            ui->focus = 1;
+            gui_set_focus(ui, 1);
             break;
         case RESET_LAYOUT:
             gui_reset_layout(ui);

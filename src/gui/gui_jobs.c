@@ -18,13 +18,17 @@ static void gui_collect_selection(Gui *ui);
 
 void gui_request_preview(Gui *ui, int reset)
 {
-    Entry *e = gui_selected(ui->pane + 1);
+    int side = ui->inspection_side, historical = side && ui->history;
+    Entry *e = gui_selected(ui->pane + side);
     if (e && !reset && ui->preview_path && !strcmp(ui->preview_path, e->path) &&
-        ui->preview_version == e->version)
+        ui->preview_version == e->version && ui->preview_side == side &&
+        ui->preview_history == historical)
         return;
     free(ui->preview_path);
     ui->preview_path = xstrdup(e ? e->path : "");
     ui->preview_version = e ? e->version : 0;
+    ui->preview_side = side;
+    ui->preview_history = historical;
     if (reset) {
         ui->page = 0;
         ui->occurrence_page = 0;
@@ -33,16 +37,18 @@ void gui_request_preview(Gui *ui, int reset)
     }
     ui->help = 0;
     free(ui->details);
-    ui->details = xstrdup(e ? "Loading details..." : "Select a file in the right pane.");
+    ui->details = xstrdup(e      ? "Loading details..."
+                          : side ? "Select an entry in the source / history pane."
+                                 : "Select an entry in the destination pane.");
     gui_request_view(ui, VIEW_DETAILS);
     pthread_mutex_lock(&ui->pm);
     atomic_store(&ui->preview_cancel, 1);
     ui->request_seq++;
     free(ui->preview_file);
     ui->preview_file = NULL;
-    if (e && !strcmp(e->kind, "file") && (!ui->history || *e->dest))
-        ui->preview_file = xstrdup(ui->history ? e->dest : e->path);
-    ui->preview_root = ui->history ? ui->c->dfd : ui->c->sfd;
+    if (e && !strcmp(e->kind, "file") && (!historical || *e->dest))
+        ui->preview_file = xstrdup(historical ? e->dest : e->path);
+    ui->preview_root = !side || historical ? ui->c->dfd : ui->c->sfd;
     ui->preview_page = ui->page;
     ui->preview_hex = ui->hex;
     ui->pending_seq = ui->request_seq;
@@ -77,8 +83,9 @@ static void *gui_preview_loop(void *data)
         Preview p = {0};
         int fd = file && root >= 0 ? open_beneath(root, file, O_RDONLY | O_NONBLOCK, 0) : -1;
         if (fd >= 0) {
-            activity_log(ui->c, LOG_DEBUG, "preview.start", file, NULL, "%s preview; page/frame %d",
-                         hx ? "Hex" : "Format", page);
+            activity_log(ui->c, LOG_DEBUG, "preview.start", file, NULL,
+                         "%s preview; page/frame %d; %s bytes", hx ? "Hex" : "Format", page,
+                         root == ui->c->dfd ? "destination" : "source");
             int rc = preview_spawn(fd, page, hx, &p, &ui->preview_cancel);
             if (rc < 0 && !atomic_load(&ui->preview_cancel))
                 activity_log(ui->c, LOG_WARNING, "preview.failed", file, NULL, "%s",
@@ -92,7 +99,7 @@ static void *gui_preview_loop(void *data)
             p.text = fmt("Cannot open file for preview: %s", strerror(errno));
             activity_log(ui->c, LOG_WARNING, "preview.open", file, NULL, "%s", p.text);
         } else
-            p.text = xstrdup("See metadata in the right panel; byte preview is unavailable.");
+            p.text = xstrdup("See the Details panel; byte preview is unavailable.");
         free(file);
         pthread_mutex_lock(&ui->pm);
         if (seq == ui->request_seq) {

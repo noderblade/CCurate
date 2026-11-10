@@ -83,6 +83,12 @@ contains retained entries; it does not turn all unreviewed clutter into history.
    destination location. Mark an item reviewed independently of whether you keep
    it. Reject disposable items explicitly; nothing is deleted from the source.
 
+   Preview and details follow the active file pane, switched by clicking or **Tab**.
+   In Destination, they show the actual destination file, its current metadata,
+   indexed verification status and original source paths. **F3** and **Ctrl+D**
+   keep this context while you inspect the lower panels. Viewing does not rehash
+   the file; use **Audit** to verify its content again.
+
 4. **Build the destination structure.** Create folders on the left with **F7**,
    select source entries on the right and press **F5**. Missing content is copied,
    hashed and independently verified by rereading the destination. An existing

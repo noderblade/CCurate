@@ -58,6 +58,7 @@ int gui_main(Catalog *c, int historical)
     Gui *ui = &state;
     ui->c = c;
     ui->focus = 1;
+    ui->inspection_side = 1;
     ui->scroll_drag = -1;
     ui->history = historical;
     ui->font_size = 14;

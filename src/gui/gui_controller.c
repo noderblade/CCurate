@@ -74,6 +74,10 @@ static const char *help_text =
     "Click a column header to sort; click again to reverse.\n"
     "Drag a header divider to resize; double-click it to fit visible rows.\n"
     "Scrollbars: drag thumb or click track; Shift+wheel pans.\n"
+    "Preview and details follow the active file pane (click or Tab).\n"
+    "Destination inspection reads its actual file and metadata, with\n"
+    "indexed source links. F3 / Ctrl+D keep that pane's context.\n"
+    "F3 again or Esc returns to that file pane.\n"
     "Preview/details: Left/Right pan, Home/End scroll vertically.\n"
     "Drag any separator to resize panes. Double-click to reset.\n"
     "Ctrl+click selects files. Every action is in the bottom menu.\n"
@@ -199,17 +203,17 @@ void gui_command(Gui *ui, const char *s)
         } else
             gui_notice(ui, "Use: scale 200 (range 50-400).");
     } else if (!strcmp(s, "sort")) {
-        ui->sort_side = ui->focus == 0 ? 0 : 1;
+        ui->sort_side = ui->inspection_side;
         gui_dropdown_open(ui, 3);
     } else if (!strcmp(s, "columns")) {
-        ui->column_side = ui->focus == 0 ? 0 : 1;
+        ui->column_side = ui->inspection_side;
         gui_dropdown_open(ui, 4);
     } else if (!strcmp(s, "autofit")) {
-        gui_columns_autofit(ui, ui->focus == 0 ? 0 : 1, -1);
+        gui_columns_autofit(ui, ui->inspection_side, -1);
     } else if (!strcmp(s, "resetcolumns")) {
-        gui_columns_reset(ui, ui->focus == 0 ? 0 : 1);
+        gui_columns_reset(ui, ui->inspection_side);
     } else if (!strcmp(s, "reverse")) {
-        int side = ui->focus == 0 ? 0 : 1;
+        int side = ui->inspection_side;
         int sort = ui->pane[side].sort;
         gui_set_sort(ui, side, sort & SORT_COLUMN_MASK, !(sort & SORT_DESC));
     } else if (!strcmp(s, "open"))
@@ -254,7 +258,6 @@ void gui_command(Gui *ui, const char *s)
         gui_mark_selected(ui, "restore");
     else if (!strcmp(s, "hex")) {
         ui->hex = !ui->hex;
-        gui_request_preview(ui, 0); /* force same file refresh */
         ui->preview_version = -1;
         gui_request_preview(ui, 0);
     } else if (!strcmp(s, "log")) {
@@ -263,7 +266,7 @@ void gui_command(Gui *ui, const char *s)
             ui->focus = 4;
             gui_refresh_log(ui);
         } else if (ui->focus == 4)
-            ui->focus = 1;
+            gui_set_focus(ui, ui->inspection_side);
         gui_save_ui(ui);
     } else if (!strcmp(s, "logfilter")) {
         ui->log_visible = 1;
@@ -316,15 +319,14 @@ void gui_prompt_accept(Gui *ui)
         else
             gui_notice(ui, "Invalid relative path.");
     } else if (mode == 3) {
-        int side = ui->focus == 0 ? 0 : 1;
+        int side = ui->inspection_side;
         free(ui->pane[side].search);
         ui->pane[side].search = xstrdup(text);
         ui->pane[side].page = 0;
         gui_pane_reload(ui, side);
-        if (side)
-            gui_request_preview(ui, 1);
+        gui_request_preview(ui, 1);
     } else if (mode == 4)
-        gui_navigate(ui, ui->focus == 0 ? 0 : 1, text);
+        gui_navigate(ui, ui->inspection_side, text);
     else if (mode == 5)
         gui_command(ui, text);
     else if (mode == 6) {

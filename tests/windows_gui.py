@@ -100,6 +100,12 @@ with tempfile.TemporaryDirectory(prefix='ccurate-windows-gui-') as temporary:
                     return db.execute("SELECT reviewed FROM entries WHERE path='document.txt'").fetchone() == (1,)
             until(reviewed)
             key(0x09); key(0x24); key(0x28)  # Destination / Home / document after .ccurate.
+            until(lambda: 'Format preview; page/frame 0; destination bytes' in activity.read_text(errors='replace'))
+            key(0x72); key(ord('X'), 0x11)  # Preview focus, then hex: retain destination.
+            until(lambda: 'Hex preview; page/frame 0; destination bytes' in activity.read_text(errors='replace'))
+            key(ord('X'), 0x11); key(0x72)  # Return to the destination file pane.
+            snap('03b-destination-inspection', win)
+            print('PASS destination preview / hex / F3 context', flush=True)
             key(0x2e, 0x11); snap('04-removal-confirmation', win)
             key(0x0d)  # Default Cancel.
             assert (dest / 'document.txt').exists()
