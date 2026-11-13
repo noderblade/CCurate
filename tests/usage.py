@@ -208,6 +208,8 @@ class Usage(unittest.TestCase):
     def test_random_directory_unions_against_independent_oracle(self):
         randomizer = random.Random(8273)
         paths = ['', 'a', 'a/x', 'a-', 'a-/deep', 'a0', 'b', 'b/c', 'b/c/d', 'space name', '日本語']
+        # Keep these names separate from the baseline A/B folders on Windows.
+        paths = ['random/' + path if path else '' for path in paths]
         contents = [hashlib.sha512(str(i).encode()).digest() * (i+1) for i in range(8)]
         for i in range(150):
             parent = randomizer.choice(paths)
