@@ -41,7 +41,7 @@ class Usage(unittest.TestCase):
 
     def app(self, *command):
         result = subprocess.run([APP, '--cli', str(self.source), str(self.destination), *command],
-                                capture_output=True, text=True, timeout=60)
+                                capture_output=True, text=True, encoding='utf-8', timeout=60)
         self.assertEqual(result.returncode, 0, result.stderr)
         return result.stdout
 
@@ -51,8 +51,8 @@ class Usage(unittest.TestCase):
 
     def view(self, path='', keep=0, selection=''):
         result = subprocess.run([DRIVER, str(self.destination), path, str(keep), selection],
-                                capture_output=True, text=True, timeout=60)
-        self.assertEqual(result.returncode, 0, result.stderr)
+                                capture_output=True, text=True, encoding='utf-8', timeout=60)
+        self.assertEqual(result.returncode, 0, (path, keep, selection, result.stderr))
         data = json.loads(result.stdout)
         nodes = data['chart']
         for parent in {-1} | {n['parent'] for n in nodes}:
@@ -118,7 +118,7 @@ class Usage(unittest.TestCase):
         self.app('restore', 'A/sub/two')
         self.check(keep=1)
         self.assertIn('A', [r['path'] for r in self.view(keep=1)['rows']])
-        log = (self.destination / '.ccurate/activity.log').read_text()
+        log = (self.destination / '.ccurate/activity.log').read_text(encoding='utf-8')
         self.assertIn('Incremental logical-usage index ready', log)
 
     def test_changed_content_missing_path_and_new_directory(self):
@@ -190,7 +190,7 @@ class Usage(unittest.TestCase):
         for mode in ('cancel', 'pause'):
             if self.cache.exists():
                 self.cache.unlink()
-            run = subprocess.run([DRIVER, str(self.destination)], capture_output=True, text=True, timeout=60,
+            run = subprocess.run([DRIVER, str(self.destination)], capture_output=True, text=True, encoding='utf-8', timeout=60,
                                  env=dict(os.environ, CCURATE_USAGE_INTERRUPT=mode))
             self.assertEqual(run.returncode, 0, run.stderr)
             self.assertIn('Interrupted analysis resumed: ' + mode, run.stderr)
@@ -226,7 +226,7 @@ class Usage(unittest.TestCase):
         protected = self.base / 'protected'
         protected.write_text('do not change')
         self.cache.symlink_to(protected)
-        result = subprocess.run([DRIVER, str(self.destination)], capture_output=True, text=True, timeout=30)
+        result = subprocess.run([DRIVER, str(self.destination)], capture_output=True, text=True, encoding='utf-8', timeout=30)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn('Unsafe analysis cache file', result.stderr)
         self.assertEqual(protected.read_text(), 'do not change')

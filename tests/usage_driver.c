@@ -5,6 +5,9 @@
 #include <time.h>
 #ifndef _WIN32
 #include <sys/resource.h>
+#else
+#include "usage_driver_windows.h"
+#define main cc_usagecheck_main
 #endif
 
 int main(int argc, char **argv)

@@ -19,8 +19,10 @@ target_compile_options(usagecheck PRIVATE -Wall -Wextra -Wformat=2 -Wshadow -Wmi
 target_link_libraries(usagecheck PRIVATE OpenSSL::Crypto PkgConfig::SQLITE Threads::Threads m)
 if(WIN32)
  target_sources(usagecheck PRIVATE src/platform/windows/source_access_windows.c
-  src/platform/windows/fs_windows.c src/platform/windows/metadata_windows.c)
+  src/platform/windows/fs_windows.c src/platform/windows/metadata_windows.c
+  tests/usage_driver_windows.c)
  target_compile_definitions(usagecheck PRIVATE _WIN32_WINNT=0x0a00 WINVER=0x0a00)
+ target_link_options(usagecheck PRIVATE -municode)
  target_link_libraries(usagecheck PRIVATE bcrypt advapi32)
 else()
  target_sources(usagecheck PRIVATE src/platform/linux/source_access_linux.c)
