@@ -8,6 +8,7 @@
 #include "gui_open.h"
 #include "gui_state.h"
 #include "gui_theme.h"
+#include "gui_usage.h"
 #include <math.h>
 #include <stdlib.h>
 #include <string.h>
@@ -17,6 +18,7 @@ static const char *help_text =
     "KEYBOARD / CCurate\n"
     "\n"
     "Tab                 switch left / right pane\n"
+    "Ctrl+Tab            switch Curation / Disk Usage workspace\n"
     "Arrows, PgUp/PgDn   navigate; Home / End\n"
     "Enter / Backspace   open directory / go up\n"
     "Ctrl+Enter          open file in its default application\n"
@@ -70,7 +72,10 @@ static const char *help_text =
     "F9: refresh, scan, fullscan, audit, stats, balance, reconcile, export,\n"
     "history, filter, review, unreview, restore, hex, help, scale 200,\n"
     "log, logfilter, logfollow, themes, fonts, legend, open, sort, reverse,\n"
-    "columns, autofit, resetcolumns, remove.\n"
+    "columns, autofit, resetcolumns, remove, usage, curation.\n"
+    "Disk Usage: logical sizes from the saved catalog, Rings / Treemap,\n"
+    "subtree deduplication totals and current source occurrences. F1 in\n"
+    "that workspace lists its keyboard shortcuts and metric definitions.\n"
     "Click a column header to sort; click again to reverse.\n"
     "Drag a header divider to resize; double-click it to fit visible rows.\n"
     "Scrollbars: drag thumb or click track; Shift+wheel pans.\n"
@@ -100,6 +105,7 @@ void gui_notice(Gui *ui, const char *s)
 {
     free(ui->message);
     ui->message = xstrdup(s);
+    ui->notice_until = Rget_time() + 6;
     Rwidget_invalidate(ui->canvas);
 }
 
@@ -194,6 +200,8 @@ void gui_remove_prompt(Gui *ui)
 
 void gui_command(Gui *ui, const char *s)
 {
+    if (gui_usage_command(ui, s))
+        return;
     if (!strncmp(s, "scale ", 6)) {
         double value = atof(s + 6);
         if (isfinite(value) && value >= 50 && value <= 400) {
@@ -377,6 +385,7 @@ void gui_layout_prompt(Gui *ui)
 
 void gui_save_ui(Gui *ui)
 {
+    gui_usage_save(ui);
     char widths[2][128];
     for (int i = 0; i < 2; i++) {
         const float *w = ui->pane[i].column_widths;

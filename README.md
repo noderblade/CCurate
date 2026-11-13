@@ -89,6 +89,13 @@ contains retained entries; it does not turn all unreviewed clutter into history.
    keep this context while you inspect the lower panels. Viewing does not rehash
    the file; use **Audit** to verify its content again.
 
+   Switch to **Disk Usage** (**Ctrl+Tab**) to find the largest source folders.
+   Its expandable tree, rings chart and treemap use the existing catalog,
+   without another filesystem traversal. Compare logical bytes, unique content,
+   repeated content and unverified files for any subtree, then use **Reveal in
+   Curation** (**F3**) to continue organizing the selected path. See the
+   [Disk Usage guide](USER_GUIDE.md#disk-usage-workspace) for the accounting rules.
+
 4. **Build the destination structure.** Create folders on the left with **F7**,
    select source entries on the right and press **F5**. Missing content is copied,
    hashed and independently verified by rereading the destination. An existing

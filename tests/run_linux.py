@@ -19,7 +19,7 @@ for script, args in [
     ('desktop_open', ['ccurate']),
     *[(s, ['ccurate']) for s in ('gui_smoke', 'gui_actions', 'gui_activity', 'gui_fonts',
                                'gui_navigation_open', 'gui_scroll_sort', 'gui_startup',
-                               'gui_lazy_refresh', 'gui_columns', 'gui_removal', 'gui_inspection')],
+                               'gui_lazy_refresh', 'gui_columns', 'gui_removal', 'gui_inspection', 'gui_usage')],
 ]:
     cases.append((script, [sys.executable, f'tests/{script}.py', *[str(full / a) for a in args]]))
 failures = []

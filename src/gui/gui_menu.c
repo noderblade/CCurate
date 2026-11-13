@@ -7,6 +7,7 @@
 #include "gui_scroll.h"
 #include "gui_state.h"
 #include "gui_theme.h"
+#include "gui_usage.h"
 #include <math.h>
 #include <stdlib.h>
 #include <string.h>
@@ -236,6 +237,59 @@ static const Action actions[] = {
     {6, "File status legend", "",
      "Explain every status, duplicate marker, reviewed/selection prefix and file color.", 0, 0,
      "legend", 0},
+    {2, "Disk Usage workspace", "Ctrl+Tab",
+     "Analyze logical source sizes, duplicate content and directory proportions from the saved "
+     "catalog.",
+     0, 0, "usage", 0},
+    {2, "Curation workspace", "Ctrl+Tab", "Return to the saved curation panels and selections.", 0,
+     0, "curation", 0},
+    {2, "Usage: Rings chart", "R",
+     "Show nested directory rings; each angle represents logical bytes.", 0, 0, "usage.rings", 0},
+    {2, "Usage: Treemap chart", "T", "Show nested rectangles sized by logical bytes.", 0, 0,
+     "usage.treemap", 0},
+    {2, "Usage: parent directory", "Backspace",
+     "Return to the parent, restoring its selection and scroll position.", 0, 0, "usage.up", 0},
+    {2, "Usage: source root", "Ctrl+Home",
+     "Show the whole catalog as the chart's 100 percent reference.", 0, 0, "usage.root", 0},
+    {2, "Usage: fewer chart levels", "[", "Decrease visible chart depth, down to one ring.", 0, 0,
+     "usage.depth-", 0},
+    {2, "Usage: more chart levels", "]", "Increase visible chart depth, up to five levels.", 0, 0,
+     "usage.depth+", 0},
+    {2, "Usage: all / keep candidates", "Ctrl+F",
+     "Include all present source entries, or exclude rejected files while keeping directory "
+     "containers.",
+     0, 0, "usage.scope", 0},
+    {2, "Usage: visible columns", "Ctrl+Alt+C",
+     "Choose size, share, unique, repeated, file count and unverified columns. Name stays visible.",
+     0, 0, "usage.columns", 0},
+    {2, "Usage: fit column widths", "Ctrl+Alt+W",
+     "Fit all analysis columns to the displayed rows; double-click an edge to fit one column.", 0,
+     0, "usage.fit", 0},
+    {2, "Usage: sort column", "Ctrl+S", "Sort the whole current directory by any analysis column.",
+     0, 0, "usage.sort", 0},
+    {2, "Usage: reverse sort", "Ctrl+Shift+S", "Reverse the analysis table's sort direction.", 0, 0,
+     "usage.reverse", 0},
+    {2, "Usage: previous list page", "Ctrl+PgUp",
+     "Show the previous bounded page of directory entries.", 0, 0, "usage.previous", 0},
+    {2, "Usage: next list page", "Ctrl+PgDn",
+     "Show the next bounded page; no entries are omitted from the browser.", 0, 0, "usage.next", 0},
+    {2, "Usage: previous occurrences", "Ctrl+Alt+PgUp",
+     "Show the previous page of matching current source files.", 0, 0, "usage.occurrences-", 0},
+    {2, "Usage: next occurrences", "Ctrl+Alt+PgDn",
+     "Show more matching source files, including paths outside the selected subtree.", 0, 0,
+     "usage.occurrences+", 0},
+    {2, "Usage: reveal in Curation", "F3",
+     "Select the analyzed source path in Curation, retaining the destination folder.", 0, 0,
+     "usage.reveal", 0},
+    {2, "Usage: panel proportions", "Ctrl+Alt+L",
+     "Cycle tree/chart proportions. You can also drag both analysis separators.", 0, 0,
+     "usage.layout", 0},
+    {2, "Usage: rebuild index", "",
+     "Recompute the disposable analysis cache from SQLite. Source files are not read or hashed.", 0,
+     0, "usage.rebuild", 0},
+    {2, "Usage: cancel analysis", "Esc",
+     "Cancel index preparation; the last completed generation remains saved.", 0, 0, "usage.cancel",
+     0},
 
 };
 
@@ -313,6 +367,13 @@ static void gui_action_run(Gui *ui)
     ui->footer_hover = -1;
     if (!a)
         return;
+    if (ui->tab && a->special) {
+        if (a->special == RESET_LAYOUT)
+            gui_usage_command(ui, "usage.resetlayout");
+        else
+            gui_notice(ui, "Use the Disk Usage controls, or switch to Curation for file-pane actions.");
+        return;
+    }
     GuiPane *p = ui->pane + ui->inspection_side;
     if (a->command)
         gui_command(ui, a->command);

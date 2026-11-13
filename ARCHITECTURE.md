@@ -31,6 +31,9 @@ to the core. The GUI implementation and its private interfaces live in `src/gui/
 | `gui_choices.c` | `gui_choices.h` | Log-level, color-scheme, sort-order and column-width popup controls |
 | `gui_fonts.c` | `gui_fonts.h` | Installed-font chooser, asynchronous font results and font resource lifetime |
 | `gui_theme.c` | `gui_theme.h` | Private palette data, theme application and the file-status legend |
+| `gui_tabs.c` | `gui_tabs.h` | Curation / Disk Usage switching without resetting either workspace |
+| `gui_usage.c` | `gui_usage.h`, `gui_usage_state.h` | Analysis requests, persisted navigation and reveal in Curation |
+| `gui_usage_render.c`, `gui_usage_chart.c`, `gui_usage_input.c` | `gui_usage_state.h` | Analysis tree, logical-size rings/treemap, resizing, scrollbars and input |
 
 `gui_types.h` forward-declares `Gui` and `GuiPane` for component APIs.
 `gui_state.h` defines their private state. Module headers expose only the
@@ -82,6 +85,11 @@ results; they do not start synchronous scans or decode files while drawing.
 | `src/util.c` | Hashing, filesystem/path helpers and formatting |
 | `include/curator.h` | Shared core types and service interfaces |
 | `include/font_catalog.h` | Font service interface |
+| `src/usage/usage_worker.c` / `include/usage.h` | Cancellable analysis service and request/result ownership |
+| `src/usage/usage_tracking.c` | Bounded catalog revision and dirty-directory/hash tracking |
+| `src/usage/usage_index.c` | Disposable persistent directory aggregates and atomic publication |
+| `src/usage/usage_duplicates.c` | Exact subtree content unions using lowest-common-ancestor corrections |
+| `src/usage/usage_query.c`, `usage_cache.c` | Bounded tree/chart queries, details and worker-owned navigation cache |
 
 `CCURATE_GUI=OFF` excludes all GUI modules and the Fontconfig/GIO services.
 `CCURATE_MEDIA=OFF` excludes image/PDF/audio/video decoder dependencies. Neither
@@ -154,6 +162,39 @@ or stopped on shutdown; a launched application is independent of CCurate.
 External opening is an explicit action, separate from the resource-limited
 preview worker. The external application retains normal filesystem permissions
 and can modify the original file. No shell command is constructed from a filename.
+
+## Logical usage index
+
+The analysis service has its own thread, catalog connection and `usage.sqlite`
+connection. Rendering and input consume immutable results and never run analysis
+SQL. The cache connection attaches the source catalog with `mode=ro`; the small
+catalog connection installs tracking triggers and saves preferences. No source
+filesystem data is read. CMake shares these platform-independent C files between
+Linux and Windows; Raven remains unchanged.
+
+The cache stores directories, two scopes of direct/subtree totals, duplicate
+groups and repeated-byte corrections. It does not copy entries, versions or
+file contents. Full builds stream catalog IDs in bounded chunks and release read
+snapshots between chunks. A completed generation is atomically published only
+when its catalog revision is still current. Cancellation or a crash leaves the
+last completed generation intact. The catalog token detects a cache belonging
+to a different catalog. Changed folders and hash groups are coalesced in bounded
+queues; topology changes or more than 100,000 pending updates request a rebuild.
+
+For each verified nonempty hash, occurrences sorted by directory DFS order form
+a contiguous interval within any subtree. A subtree containing k occurrences
+contains exactly k−1 LCAs of adjacent pairs. Assign one repeated file size to
+each such LCA, then roll up. Subtree unique bytes equal hashed bytes minus these
+corrections. Trailing path separators in the ordering distinguish `a/` from
+`a-/`. Each scope has its own adjacency sequence. This avoids materializing a
+hash-membership set for every file/ancestor pair. Incremental updates replace
+affected groups' corrections and recalculate only dirty ancestors.
+
+Directory listings are paged; expanded rows and chart nodes have explicit bounds.
+A worker-owned LRU holds at most 16 pages / 16 MiB and is keyed by catalog revision
+and view options. Selection changes reuse the page and only query details. Each
+query checks that the catalog snapshot and cached generation agree. Unknown
+content contributes observed logical size but never a deduplication claim.
 
 ## Validation
 

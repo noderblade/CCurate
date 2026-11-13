@@ -11,6 +11,8 @@
 #include "gui_open.h"
 #include "gui_scroll.h"
 #include "gui_state.h"
+#include "gui_tabs.h"
+#include "gui_usage.h"
 #include <math.h>
 #include <stdlib.h>
 #include <string.h>
@@ -87,6 +89,10 @@ int gui_handle_event(Gui *ui, const REvent *e)
     if (gui_dropdown_event(ui, e))
         return 1;
     if (gui_menu_event(ui, e))
+        return 1;
+    if (gui_tabs_event(ui, e))
+        return 1;
+    if (gui_usage_event(ui, e))
         return 1;
     if (gui_columns_event(ui, e))
         return 1;

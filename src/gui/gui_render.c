@@ -9,6 +9,8 @@
 #include "gui_scroll.h"
 #include "gui_state.h"
 #include "gui_theme.h"
+#include "gui_tabs.h"
+#include "gui_usage_state.h"
 #include <math.h>
 #include <stdlib.h>
 #include <string.h>
@@ -207,6 +209,7 @@ void gui_render(Gui *ui, RPainter *p, float w, float h)
     char scaling[60];
     snprintf(scaling, sizeof(scaling), "UI %.0f%%  Ctrl+,", ui->scale * 100);
     gui_text_clip(ui, p, w - 158, 14, 138, 22, scaling, GUI_COLOR(ui, text), 13);
+    gui_tabs_paint(ui, p);
     char a[40], b[40];
     human_bytes(atomic_load(&ui->c->storage.free_bytes), a);
     human_bytes(ui->summary.needed_bytes, b);
@@ -231,9 +234,10 @@ void gui_render(Gui *ui, RPainter *p, float w, float h)
     human_bytes(wal_bytes, wal);
     human_bytes(atomic_load(&ui->c->storage.jsonl), index);
     human_bytes(db_bytes + wal_bytes + shm_bytes, db_total);
-    char storage[256];
-    snprintf(storage, sizeof(storage), "Database: %s | JSONL: %s | SQLite: %s | WAL: %s (+ SHM)",
-             db_total, index, database, wal);
+    char storage[320], usage_bytes[40];
+    human_bytes(atomic_load(&ui->c->storage.usage), usage_bytes);
+    snprintf(storage, sizeof(storage), "Database: %s | JSONL: %s | SQLite: %s | WAL: %s (+ SHM) | Usage cache: %s",
+             db_total, index, database, wal, usage_bytes);
     gui_text_clip(ui, p, 18, 64, w - 36, 21, storage, GUI_COLOR(ui, muted), 13);
     char prog[1024];
     pthread_mutex_lock(&ui->c->progress_mutex);
@@ -269,17 +273,31 @@ void gui_render(Gui *ui, RPainter *p, float w, float h)
                  (unsigned long long)ui->scan.done, elapsed);
     else
         snprintf(line, sizeof(line), "%s", ui->message ? ui->message : "Ready");
+    if (ui->tab && !atomic_load(&ui->busy)) {
+        GuiUsage *u = ui->usage;
+        if (u->status.phase == USAGE_BUILDING) {
+            duration_text(u->status.elapsed, elapsed);
+            snprintf(line, sizeof(line), "%s | processed %llu | elapsed %s | Cancel: Esc",
+                     u->status.message, (unsigned long long)u->status.done, elapsed);
+        } else
+            snprintf(line, sizeof(line), "%s | Catalog snapshot%s", u->status.message,
+                     u->loading ? " | loading view" : "");
+        snprintf(prog, sizeof(prog), "%s",
+                 ui->message && Rget_time() < ui->notice_until ? ui->message
+                 : u->error ? u->error
+                 : "Logical file lengths · Analysis reads the saved catalog · Source files are not scanned");
+    }
     if (*ui->log_error)
         snprintf(line, sizeof(line), "LOG ERROR: %s", ui->log_error);
     gui_text_clip(
         ui, p, 18, 87, w - 36, 22, line,
         GUI_HEX_COLOR(*ui->log_error ? gui_theme_current(ui)->error : gui_theme_current(ui)->text),
         13);
-    float bar_y = gui_pane_top(ui) - 12;
+    float bar_y = gui_pane_top(ui) - 12 - (ui->width < 680 ? 38 : 0);
     Rdraw_rect(p, 18, bar_y, w - 36, 4, 2, GUI_COLOR(ui, border), 1);
     if (scanning && ui->scan.fraction >= 0)
         Rdraw_rect(p, 18, bar_y, (w - 36) * ui->scan.fraction, 4, 2, GUI_COLOR(ui, accent), 1);
-    else if (atomic_load(&ui->busy)) {
+    else if (atomic_load(&ui->busy) || (ui->tab && ui->usage->status.phase == USAGE_BUILDING)) {
         float t = fmod(Rget_time(), 2) / 2;
         Rdraw_rect(p, 18 + (w - 76) * t, bar_y, 40, 4, 2, GUI_COLOR(ui, accent), 1);
     }
@@ -289,6 +307,15 @@ void gui_render(Gui *ui, RPainter *p, float w, float h)
         free(safe);
     }
     GuiGeometry g = gui_geometry(ui);
+    if (ui->tab) {
+        gui_usage_paint(ui, p);
+        if (ui->log_visible)
+            gui_log_paint(ui, p, g);
+        gui_menu_paint(ui, p);
+        gui_dropdown_paint(ui, p);
+        gui_font_picker_paint(ui, p);
+        return;
+    }
     for (int i = 0; i < 2; i++) {
         GuiRect r = g.pane[i];
         gui_pane_paint(ui, p, i, r.x, r.y, r.w, r.h);

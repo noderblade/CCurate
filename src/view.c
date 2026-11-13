@@ -486,6 +486,8 @@ static void *metrics(void *arg)
         atomic_store(&c->storage.wal, file_size(c->mfd, "catalog.sqlite-wal"));
         atomic_store(&c->storage.shm, file_size(c->mfd, "catalog.sqlite-shm"));
         atomic_store(&c->storage.jsonl, file_size(c->mfd, "archive.jsonl"));
+        atomic_store(&c->storage.usage, file_size(c->mfd, "usage.sqlite") +
+                     file_size(c->mfd, "usage.sqlite-wal") + file_size(c->mfd, "usage.sqlite-shm"));
         struct statvfs fs;
         if (!fstatvfs(c->dfd, &fs))
             atomic_store(&c->storage.free_bytes, (uint64_t)fs.f_bavail * fs.f_frsize);

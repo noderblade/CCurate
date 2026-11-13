@@ -2,6 +2,7 @@
 #include "gui_browser.h"
 #include "gui_state.h"
 #include "gui_theme.h"
+#include "gui_usage.h"
 #include <math.h>
 #include <stdlib.h>
 #include <string.h>
@@ -52,7 +53,9 @@ static void apply(Gui *ui, int id, double value)
     GuiScrollbar *bar = &ui->scrollbars[id];
     value = fmax(0, fmin(bar->maximum, value));
     bar->value = value;
-    if (id < 4) {
+    if (id >= 14) {
+        gui_usage_scroll(ui, id, value);
+    } else if (id < 4) {
         int side = id / 2;
         gui_set_focus(ui, side);
         if (id % 2)
@@ -92,6 +95,8 @@ static int allowed(Gui *ui, int id)
         return id == 13;
     if (ui->menu)
         return id == 12;
+    if (ui->tab)
+        return !gui_usage_popup(ui) && (id >= 14 || id == 8 || id == 9);
     return id < 10;
 }
 

@@ -26,7 +26,7 @@ jobs:
       - name: Build full and core configurations
         run: |
           cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
-          cmake --build build --target ccurate previewcheck jpegfixture preview_policy_probe workercheck sortcheck activitycheck hashcheck databasecheck navigationcheck refreshcheck inspectioncheck
+          cmake --build build --target ccurate previewcheck jpegfixture preview_policy_probe workercheck sortcheck activitycheck hashcheck databasecheck navigationcheck refreshcheck inspectioncheck usagecheck
           cmake -S . -B build-core -G Ninja -DCCURATE_GUI=OFF -DCCURATE_MEDIA=OFF -DCMAKE_BUILD_TYPE=Release
           cmake --build build-core
       - name: Core, preview and native GUI regressions

@@ -4,7 +4,7 @@
 #include "gui_layout.h"
 #include <Raven.h>
 
-enum { GUI_SCROLLBARS = 14 };
+enum { GUI_SCROLLBARS = 18 };
 typedef struct {
     GuiRect track, thumb;
     double value, maximum, page;

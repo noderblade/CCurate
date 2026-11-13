@@ -14,6 +14,7 @@
 #include <Raven.h>
 
 typedef struct GuiLocation GuiLocation;
+typedef struct GuiUsage GuiUsage;
 struct GuiPane {
     char *path, *search;
     char *anchor;
@@ -29,6 +30,8 @@ struct GuiPane {
 };
 struct Gui {
     Catalog *c, reader;
+    GuiUsage *usage;
+    int tab;
     Rid window, canvas, overlay, prompt_box, prompt_label, input, font, texture;
     Rid prompt_confirm, prompt_cancel;
     Rid remove_scroll, remove_label;
@@ -87,7 +90,7 @@ struct Gui {
     ActivityLine *log_lines;
     uint64_t log_revision;
     char log_error[256];
-    double last_click;
+    double last_click, notice_until;
     float click_x, click_y;
     int click_count;
     Summary summary;

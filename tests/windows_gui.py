@@ -120,6 +120,19 @@ with tempfile.TemporaryDirectory(prefix='ccurate-windows-gui-') as temporary:
             key(0x09)  # Source.
             key(0x70); snap('04-help', win); key(0x70)
             key(ord('H'), 0x11); snap('05-history', win)
+            key(0x09, 0x11)  # Ctrl+Tab: catalog-only disk usage.
+            until(lambda: '| usage.view |' in activity.read_text(errors='replace'))
+            snap('06-disk-usage-rings', win)
+            def usage_preferences():
+                with closing(sqlite3.connect(dest / '.ccurate/catalog.sqlite')) as db:
+                    row = db.execute("SELECT value FROM settings WHERE key='ui.usage'").fetchone()
+                    return row[0].splitlines()[0].split() if row else []
+            until(lambda: usage_preferences() and usage_preferences()[0] == '1')
+            key(ord('T')); until(lambda: usage_preferences()[5] == '1')
+            snap('07-disk-usage-treemap', win)
+            key(ord('R')); key(0x28); key(0x72)  # Select a source row and reveal.
+            until(lambda: usage_preferences()[0] == '0')
+            print('PASS native Disk Usage / chart modes / source reveal', flush=True)
             stop()
             assert (source / 'document.txt').read_bytes() == original
             result = subprocess.run([APP, '--cli', str(source), str(dest), 'audit'], capture_output=True, timeout=60)

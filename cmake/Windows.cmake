@@ -111,6 +111,9 @@ endif()
 install(TARGETS ccurate RUNTIME DESTINATION bin)
 
 target_sources(ccurate PRIVATE src/source_refresh.c)
+include(${CMAKE_CURRENT_LIST_DIR}/Usage.cmake)
+add_test(NAME disk_usage COMMAND ${Python3_EXECUTABLE}
+ ${CMAKE_CURRENT_SOURCE_DIR}/tests/usage.py $<TARGET_FILE:ccurate> $<TARGET_FILE:usagecheck>)
 add_test(NAME statistics COMMAND ${Python3_EXECUTABLE}
  ${CMAKE_CURRENT_SOURCE_DIR}/tests/statistics.py $<TARGET_FILE:ccurate>)
 

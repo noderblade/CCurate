@@ -155,6 +155,8 @@ once per second:
   `catalog.sqlite-shm`.
 - **JSONL:** the current `archive.jsonl`, representing the last completed export.
 - **SQLite / WAL:** the main database file and its write-ahead log separately.
+- **Usage cache:** the separate, disposable `usage.sqlite` analysis cache,
+  including its WAL and shared-memory files.
 
 These are file lengths, not physical block consumption after ZFS compression.
 The temporary file of an active export is excluded from JSONL size. Once the
@@ -292,6 +294,93 @@ pixels or **`auto`** to fit that column. **Layout > Fit columns to visible rows*
 (**Ctrl+Alt+W**, F9 **`autofit`**) fits all five columns of the active pane.
 **Layout > Reset column widths** (F9 **`resetcolumns`**) restores responsive
 defaults for that pane. These actions also work in the archive history view.
+
+## Disk Usage workspace
+
+Click **Disk Usage** beside Curation, choose **View → Disk Usage workspace**, or
+press **Ctrl+Tab**. Curation keeps its source/destination locations, selections,
+previews and layout while the analysis workspace is open.
+
+The source tree appears on the left and a chart on the right, with details and
+duplicate occurrences below. Drag the separators to resize these areas. At high
+UI scales the tree and chart stack vertically. Scrollbars, column dragging,
+double-click auto-fit, header sorting and a column chooser are available. Sorting
+applies to the entire current directory. Each list page contains up to 500 direct
+children; expanded branches show up to 100 children before a **More entries** row
+that opens the directory. Zero-byte, hidden and special entries remain visible.
+
+The chart uses **logical file lengths**. A folder's value includes its
+descendants. Rings show successive directory levels; Treemap uses nested
+rectangles. Both show the current directory as 100%, with one to five visible
+levels. Chart colors match the tree's color markers. Click a chart folder to
+enter it; hover shows its size and percentage without selecting anything. Small
+segments are combined into **Other entries**, preserving their total bytes;
+their files remain accessible through the tree. Click the ring center, **Up**,
+or a breadcrumb to navigate back. Parent navigation restores selection and scroll.
+
+| Metric | Meaning |
+| --- | --- |
+| Logical size | Sum of current file lengths, including observed sizes awaiting verification |
+| Unique here | One copy per verified, nonempty SHA-512 content **inside this subtree** |
+| Repeated here | Verified bytes beyond that first copy **inside this subtree** |
+| Share | Logical bytes as a percentage of the current chart root |
+| Files | Current regular-file occurrences, including empty and unverified files |
+| Unverified | Bytes/files whose current contents are not verified; excluded from deduplication |
+
+**Unique and repeated totals are not additive across sibling folders.** If A and
+B each contain one identical 10 MiB file, each folder has 10 MiB unique and 0 B
+repeated. Their parent has 20 MiB logical, 10 MiB unique and 10 MiB repeated.
+`Unique here*` / `Repeated here*` means only the verified subset is accounted for.
+For that subset, unique plus repeated equals verified logical bytes. The details
+panel lists matching current source occurrences, including those outside the
+selected directory, and the indexed destination location when one exists.
+
+Empty files do not form duplicate groups. Symlinks and special objects contribute
+0 B of regular-file content and retain their metadata; links are not traversed.
+Hard-linked regular files count once per original path in logical totals and
+once per content in unique totals. Missing historical versions are excluded.
+**All entries** includes rejected files; **Keep candidates** excludes rejected
+files while retaining directory containers. This is a content estimate, not a
+prediction of filesystem overhead, compression, or final archive metadata size.
+
+Analysis reads the **saved source catalog**. It works with an unavailable source
+as long as the destination still contains that catalog. It cannot reconstruct
+discarded source inventory from the retained-only JSONL export. The first visit
+builds `.ccurate/usage.sqlite` in a cancellable worker and displays the phase,
+processed count and elapsed time. Large catalogs can take several minutes; the
+previous completed generation remains saved until a replacement is complete.
+Subsequent visits reuse the index and a bounded navigation cache. Catalog changes
+update affected directories and hash groups; structural or large changes cause
+a background rebuild. The worker pauses while source scans or folder checks run.
+
+**Rebuild** recalculates this disposable index from SQLite. It does not read or
+rehash source files. Refresh the source explicitly from Curation when you want
+the catalog to reflect unvisited changes. Stop CCurate before manually removing
+the cache. No source removal, rejection, or copy operation acts on a hidden
+Curation selection from this workspace; use **Reveal in Curation** first.
+
+| Control | Action |
+| --- | --- |
+| Ctrl+Tab | Switch workspaces |
+| Arrows, Page Up/Down, Home/End | Select within the current analysis page |
+| Enter / double-click | Enter a folder; reveal a file in Curation |
+| Space / Right; Left | Expand/collapse; collapse or go to the parent |
+| Backspace / Alt+Left; Ctrl+Home | Parent; source root |
+| Ctrl+Page Up/Down | Previous/next directory-list page |
+| R / T; `[` / `]` | Rings/Treemap; fewer/more chart levels |
+| Ctrl+F | All entries / Keep candidates |
+| Ctrl+S; Ctrl+Shift+S | Choose sort column; reverse direction |
+| Ctrl+Alt+C; Ctrl+Alt+W | Column chooser; fit visible rows |
+| Ctrl+Alt+L | Cycle tree/chart proportions |
+| F3 / Ctrl+Enter | Reveal in Curation, preserving the destination folder |
+| Tab; Ctrl+D | Change tree/details focus; focus details |
+| Ctrl+Alt+Page Up/Down | Page through matching source occurrences |
+| F1; Escape | Analysis help; close help or cancel index preparation |
+
+Every analysis command is also in **View**, with explanatory menu text. **F9**
+accepts `usage` and `curation`; the View menu lists the individual `usage.*`
+actions. Session preferences include the active tab, directory, selection,
+expanded branches, chart mode/depth, scope, sorting, visible columns and layout.
 
 ## Activity log
 

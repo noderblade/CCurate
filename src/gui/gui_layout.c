@@ -11,7 +11,7 @@ static float gui_bounded_split(float ratio, float available, float minimum);
 
 float gui_pane_top(Gui *ui)
 {
-    return ui->height < 420 ? 118 : 148;
+    return (ui->height < 420 ? 118 : 148) + (ui->width < 680 ? 38 : 0);
 }
 
 static float gui_bounded_split(float ratio, float available, float minimum)

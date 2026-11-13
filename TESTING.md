@@ -1,5 +1,32 @@
 # Validation
 
+## Disk Usage workspace
+
+`usagecheck` exercises the same asynchronous service used by the native UI.
+`tests/usage.py` is registered with CTest on Linux and Windows. It compares
+subtree unions with an independent Python oracle and covers cross-branch
+duplicates, prefix-adjacent paths, unknown/changed content, missing versions,
+rejections, zero-byte files, metadata-only entries, destination provenance,
+offline operation, bounded chart aggregation and unsafe cache files.
+
+`tests/gui_usage.py` runs under Xvfb and exercises tab isolation, non-selecting
+hover, tree expansion, parent focus, rings/treemap, chart depth, resizing,
+column choices, help, reveal and persisted session preferences. It is included
+in the primary Linux regression runner.
+
+The optional scale test creates only disposable catalog records and checks
+logical and unique totals for a duplicate-heavy dataset:
+
+```sh
+python3 tests/usage_scale.py build/ccurate build/usagecheck /path/to/scratch 17000000
+```
+
+Use a scratch filesystem with ample capacity (roughly 1 KiB per file); no file
+payloads are created. It reports initial and saved-index navigation times,
+repeated in-process requests and cache size. Results depend on directory shape,
+duplicate distribution, hardware and catalog fragmentation. This optional test
+does not run on every CI build.
+
 CCurate 0.1.0, including destination-copy removal and the Windows port.
 Linux remains the primary platform.
 

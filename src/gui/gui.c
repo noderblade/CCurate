@@ -12,6 +12,7 @@
 #include "gui_state.h"
 #include "gui_theme.h"
 #include "source_refresh.h"
+#include "gui_usage.h"
 #include <math.h>
 #include <stdlib.h>
 #include <string.h>
@@ -157,6 +158,7 @@ int gui_main(Catalog *c, int historical)
     ui->font_index = atoi(saved);
     free(saved);
     RInitDesc init = {0};
+    gui_usage_init(ui);
     init.backend = R_BACKEND_VULKAN;
     init.ui_scale = ui->scale;
     init.app_name = "CCurate";
@@ -166,6 +168,7 @@ int gui_main(Catalog *c, int historical)
 #endif
     Rerror_set_callback(raven_error);
     if (!gui_graphics_init(&init)) {
+        gui_usage_shutdown(ui);
         sqlite3_close(ui->reader.db);
         return fail(c, "Raven could not initialize Vulkan / display");
     }
@@ -175,6 +178,7 @@ int gui_main(Catalog *c, int historical)
     Rtheme_set_font(ui->font);
     ui->window = Rwindow_create("CCurate - manual archive curation", 1500, 960, R_WINDOW_DEFAULT);
     if (ui->window == R_INVALID_ID) {
+        gui_usage_shutdown(ui);
         gui_graphics_shutdown();
         sqlite3_close(ui->reader.db);
         return fail(c, "Window creation failed");
@@ -255,6 +259,8 @@ int gui_main(Catalog *c, int historical)
     gui_request_preview(ui, 1);
     if (historical)
         gui_notice(ui, "History: files are read from the destination. Ctrl+H switches views.");
+    if (ui->tab)
+        gui_usage_activate(ui);
     ui->font_service = font_service_start(c);
     if (!ui->font_service)
         gui_notice(ui, "Font discovery could not start; using bundled monospace.");
@@ -287,6 +293,7 @@ int gui_main(Catalog *c, int historical)
             gui_save_ui(ui);
         }
         gui_jobs_tick(ui);
+        gui_usage_tick(ui);
         gui_apply_view(ui);
         gui_open_tick(ui);
         scan_status(c, &ui->scan);
@@ -337,6 +344,7 @@ int gui_main(Catalog *c, int historical)
         pthread_join(ui->worker, NULL);
     }
     gui_save_ui(ui);
+    gui_usage_shutdown(ui);
     desktop_open_stop(&ui->opener);
     free(ui->open_path);
     gui_jobs_stop_preview(ui);

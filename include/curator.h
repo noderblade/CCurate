@@ -32,7 +32,7 @@ typedef struct {
     double elapsed, phase_elapsed, fraction, bytes_per_second, eta;
 } ScanStatus;
 typedef struct {
-    atomic_ullong database, wal, shm, jsonl, free_bytes;
+    atomic_ullong database, wal, shm, jsonl, free_bytes, usage;
 } StorageStatus;
 typedef struct {
     char *s;
