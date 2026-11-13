@@ -27,6 +27,22 @@ repeated in-process requests and cache size. Results depend on directory shape,
 duplicate distribution, hardware and catalog fragmentation. This optional test
 does not run on every CI build.
 
+The development run on 2026-11-13 passed with **17,000,000 file occurrences** in
+17,000 leaf directories and 1,000 SHA-512 groups spanning all directories. Each
+synthetic file was 512 KiB logically; no corresponding payload was read or
+created. The catalog occupied **11.243 GiB**. Initial analysis took **554.996 s**,
+the finished analysis cache occupied **4.016 MiB**, and peak RSS of the headless
+analysis driver was about **82.3 MiB**. Separate subsequent driver launches
+returned the leaf/root views in **20 ms / 61 ms**; repeated requests in one
+process were generally **1–2 ms**. These are backend timings on a warm filesystem
+cache, not GUI frame timings or guarantees for other catalog shapes. The compact
+cache size reflects this fixture's duplicate distribution.
+
+The Linux full/core CTest suites and the 21-suite regression runner passed,
+including native GUI tests. The analysis tests also passed AddressSanitizer and
+UBSan; LeakSanitizer was disabled because the execution sandbox cannot support
+its process inspection. GitHub Actions additionally validates native Windows.
+
 CCurate 0.1.0, including destination-copy removal and the Windows port.
 Linux remains the primary platform.
 

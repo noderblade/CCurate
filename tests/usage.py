@@ -151,9 +151,17 @@ class Usage(unittest.TestCase):
         names = {r['path']: r for r in data['rows']}
         self.assertEqual(names['.empty']['bytes'], 0)
         self.assertIn('independent metadata entry', self.view(selection='.empty')['details'])
+        self.app('copy', '.empty', 'Curated')
+        self.assertIn('Destination: /Curated/.empty | verified', self.view(selection='.empty')['details'])
         if os.name != 'nt':
             self.assertEqual(names['link-to-directory']['bytes'], 0)
             self.assertEqual(names['pipe']['bytes'], 0)
+
+    def test_missing_version_is_unverified_not_empty(self):
+        self.sql("UPDATE entries SET current=NULL WHERE path='.empty'")
+        data = self.check()
+        self.assertEqual(data['unknown_files'], 1)
+        self.assertIn('UNVERIFIED:', self.view(selection='.empty')['details'])
 
     def test_occurrences_and_verified_destination(self):
         self.check()

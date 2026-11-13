@@ -227,9 +227,12 @@ static char *details(UsageDb *db, const UsageRequest *r, const UsageResult *out)
     free(display);
     sqlite3_stmt *s = sql_prepare(
         &db->cache,
-        "SELECT e.kind,v.hash,e.error,o.dest,o.state,"
-        "d.eid IS NOT NULL,v.size FROM src.entries e LEFT JOIN src.versions v ON v.id=e.current "
-        "LEFT JOIN src.discoveries d ON d.eid=e.id LEFT JOIN src.objects o ON o.hash=v.hash WHERE "
+        "SELECT e.kind,v.hash,e.error,CASE WHEN v.size=0 THEN ec.dest ELSE o.dest END,"
+        "CASE WHEN v.size=0 THEN ec.state ELSE o.state END,"
+        "d.eid IS NOT NULL,v.size,v.id FROM src.entries e LEFT JOIN src.versions v ON "
+        "v.id=e.current "
+        "LEFT JOIN src.discoveries d ON d.eid=e.id LEFT JOIN src.objects o ON o.hash=v.hash "
+        "LEFT JOIN src.empty_copies ec ON ec.version=v.id WHERE "
         "e.path=?");
     if (!s)
         return b.s;
@@ -242,6 +245,7 @@ static char *details(UsageDb *db, const UsageRequest *r, const UsageResult *out)
     char *state = xstrdup(rc == SQLITE_ROW ? (const char *)sqlite3_column_text(s, 4) : "");
     int pending = rc == SQLITE_ROW ? sqlite3_column_int(s, 5) : 0;
     int64_t size = rc == SQLITE_ROW ? sqlite3_column_int64(s, 6) : 0;
+    int verified_version = rc == SQLITE_ROW && sqlite3_column_type(s, 7) != SQLITE_NULL;
     sqlite3_finalize(s);
     if (!strcmp(kind, "directory")) {
         s = sql_prepare(
@@ -273,8 +277,14 @@ static char *details(UsageDb *db, const UsageRequest *r, const UsageResult *out)
     } else if (strcmp(kind, "file")) {
         badd(&b, "%s: metadata-only entry. No file content is counted; links are not followed.\n",
              kind);
-    } else if (size == 0 && !pending && !*error) {
+    } else if (size == 0 && verified_version && !pending && !*error) {
         badd(&b, "Empty file: independent metadata entry; excluded from duplicate groups.\n");
+        if (*dest) {
+            display = display_path(dest);
+            badd(&b, "Destination: /%s | %s\n", display, state);
+            free(display);
+        } else
+            badd(&b, "Destination: no indexed copy\n");
     } else if (pending || *error || strlen(hash) != HASH_LEN) {
         badd(&b, "UNVERIFIED: no current usable content hash.\n%s\n",
              *error ? error : "Observed metadata is waiting for verification.");

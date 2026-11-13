@@ -248,9 +248,10 @@ static void panel(Gui *ui, RPainter *p, GuiRect r, int focus)
 static void details_paint(Gui *ui, RPainter *p, GuiRect r)
 {
     GuiUsage *u = ui->usage;
-    const char *text = u->help     ? usage_help
-                       : u->result ? u->result->details
-                                   : "Select an entry after the usage index is ready.";
+    const char *text = u->help      ? usage_help
+                       : u->loading ? "Loading analysis details..."
+                       : u->result  ? u->result->details
+                                    : "Select an entry after the usage index is ready.";
     float line_height = ui->font_size + 5;
     GuiRect body = {r.x + 10, r.y + 38, fmaxf(1, r.w - 30), fmaxf(1, r.h - 56)};
     int row = 0;
@@ -298,15 +299,17 @@ void gui_usage_paint(Gui *ui, RPainter *p)
         free(label);
     }
     char logical[40], unique[40], repeated[40], unknown[40], metrics[512];
-    UsageTotals t = u->result ? u->result->totals : (UsageTotals){0};
+    int same = u->result && !strcmp(u->result->path, u->request.path);
+    UsageTotals t = same ? u->result->totals : (UsageTotals){0};
     human_bytes(t.bytes, logical);
     human_bytes(t.hashed - t.repeated, unique);
     human_bytes(t.repeated, repeated);
     human_bytes(t.unknown_bytes, unknown);
     snprintf(metrics, sizeof(metrics), "Logical: %s | Unique here%s: %s | Repeated here%s: %s",
              logical, t.unknown_files ? "*" : "", unique, t.unknown_files ? "*" : "", repeated);
-    gui_text_clip(ui, p, 17, g.breadcrumb.y + 25, ui->width - 34, 22, metrics,
-                  GUI_COLOR(ui, accent), 13);
+    gui_text_clip(ui, p, 17, g.breadcrumb.y + 25, ui->width - 34, 22,
+                  same ? metrics : "Directory totals are not available yet.", GUI_COLOR(ui, accent),
+                  13);
     snprintf(metrics, sizeof(metrics), "Unverified: %s / %lld files | Chart depth: %d | %s%s",
              unknown, (long long)t.unknown_files, u->request.depth,
              u->request.keep ? "Keep candidates" : "All present entries",
@@ -342,7 +345,6 @@ void gui_usage_paint(Gui *ui, RPainter *p)
                        1);
         }
     Rdraw_pop_clip_rect(p);
-    int same = u->result && !strcmp(u->result->path, u->request.path);
     int count = same ? u->result->count : 0;
     u->offset = (int)fmaxf(0, fminf(u->offset, count - g.visible));
     Rdraw_push_clip_rect(p, g.body.x, g.body.y, g.body.w, g.body.h);
