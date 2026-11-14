@@ -80,9 +80,9 @@ static void gui_pane_paint(Gui *ui, RPainter *p, int side, float x, float y, flo
 {
     GuiPane *pn = ui->pane + side;
     int active = ui->focus == side;
-    Rdraw_rect(p, x, y, w, h, 8, GUI_COLOR(ui, panel), 1);
+    Rdraw_rect(p, x, y, w, h, 0, GUI_COLOR(ui, panel), 1);
     Rdraw_rect_outline(
-        p, x, y, w, h, 8, active ? 2 : 1,
+        p, x, y, w, h, 0, active ? 2 : 1,
         GUI_HEX_COLOR(active ? gui_theme_current(ui)->accent : gui_theme_current(ui)->border), 1);
     char *path = display_path(pn->path);
     char *search = display_path(pn->search);
@@ -134,7 +134,7 @@ static void gui_pane_paint(Gui *ui, RPainter *p, int side, float x, float y, flo
         float ry = table + (r - pn->offset) * ui->row_height;
         int sel = r == pn->selected;
         if (sel)
-            Rdraw_rect(p, layout.body.x, ry, layout.body.w, ui->row_height - 1, 3,
+            Rdraw_rect(p, layout.body.x, ry, layout.body.w, ui->row_height - 1, 0,
                        GUI_HEX_COLOR(active ? gui_theme_current(ui)->selection
                                             : gui_theme_current(ui)->inactive),
                        1);
@@ -205,7 +205,7 @@ void gui_render(Gui *ui, RPainter *p, float w, float h)
     ui->height = h;
     Rdraw_rect(p, 0, 0, w, h, 0, GUI_COLOR(ui, background), 1);
     gui_text_clip(ui, p, 18, 12, w - 200, 28, "CCurate", GUI_COLOR(ui, text), 23);
-    Rdraw_rect(p, w - 166, 8, 152, 28, 5, GUI_COLOR(ui, raised), 1);
+    Rdraw_rect(p, w - 166, 8, 152, 28, 0, GUI_COLOR(ui, raised), 1);
     char scaling[60];
     snprintf(scaling, sizeof(scaling), "UI %.0f%%  Ctrl+,", ui->scale * 100);
     gui_text_clip(ui, p, w - 158, 14, 138, 22, scaling, GUI_COLOR(ui, text), 13);
@@ -294,12 +294,12 @@ void gui_render(Gui *ui, RPainter *p, float w, float h)
         GUI_HEX_COLOR(*ui->log_error ? gui_theme_current(ui)->error : gui_theme_current(ui)->text),
         13);
     float bar_y = gui_pane_top(ui) - 12 - (ui->width < 680 ? 38 : 0);
-    Rdraw_rect(p, 18, bar_y, w - 36, 4, 2, GUI_COLOR(ui, border), 1);
+    Rdraw_rect(p, 18, bar_y, w - 36, 4, 0, GUI_COLOR(ui, border), 1);
     if (scanning && ui->scan.fraction >= 0)
-        Rdraw_rect(p, 18, bar_y, (w - 36) * ui->scan.fraction, 4, 2, GUI_COLOR(ui, accent), 1);
+        Rdraw_rect(p, 18, bar_y, (w - 36) * ui->scan.fraction, 4, 0, GUI_COLOR(ui, accent), 1);
     else if (atomic_load(&ui->busy) || (ui->tab && ui->usage->status.phase == USAGE_BUILDING)) {
         float t = fmod(Rget_time(), 2) / 2;
-        Rdraw_rect(p, 18 + (w - 76) * t, bar_y, 40, 4, 2, GUI_COLOR(ui, accent), 1);
+        Rdraw_rect(p, 18 + (w - 76) * t, bar_y, 40, 4, 0, GUI_COLOR(ui, accent), 1);
     }
     if (ui->height >= 420) {
         char *safe = display_path(prog);
@@ -322,8 +322,8 @@ void gui_render(Gui *ui, RPainter *p, float w, float h)
     }
     for (int i = 2; i < 4; i++) {
         GuiRect r = g.pane[i];
-        Rdraw_rect(p, r.x, r.y, r.w, r.h, 8, GUI_COLOR(ui, panel), 1);
-        Rdraw_rect_outline(p, r.x, r.y, r.w, r.h, 8, ui->focus == i ? 2 : 1,
+        Rdraw_rect(p, r.x, r.y, r.w, r.h, 0, GUI_COLOR(ui, panel), 1);
+        Rdraw_rect_outline(p, r.x, r.y, r.w, r.h, 0, ui->focus == i ? 2 : 1,
                            GUI_HEX_COLOR(ui->focus == i ? gui_theme_current(ui)->accent
                                                         : gui_theme_current(ui)->border),
                            1);
@@ -372,7 +372,7 @@ void gui_render(Gui *ui, RPainter *p, float w, float h)
             r.w *= .2f;
         }
         Rdraw_rect(
-            p, r.x, r.y, r.w, r.h, 2,
+            p, r.x, r.y, r.w, r.h, 0,
             GUI_HEX_COLOR(hot ? gui_theme_current(ui)->accent : gui_theme_current(ui)->border), 1);
     }
     if (ui->log_visible)

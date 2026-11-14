@@ -67,6 +67,9 @@ void gui_apply_theme(Gui *ui, int index)
 {
     ui->theme = index >= 0 && index < gui_theme_count() ? index : 1;
     Rtheme_set_dark(gui_theme_current(ui)->dark);
+    /* Match the square canvas geometry in Raven controls, menus and tooltips. */
+    Rtheme_set_metric(R_METRIC_CORNER_RADIUS, 0);
+    Rtheme_set_metric(R_METRIC_POPUP_RADIUS, 0);
     Rtheme_set_accent(GUI_COLOR(ui, accent));
     Rtheme_set_color(R_COLOR_WINDOW, GUI_COLOR(ui, background), 1);
     Rtheme_set_color(R_COLOR_PANEL, GUI_COLOR(ui, panel), 1);

@@ -428,7 +428,7 @@ void gui_menu_paint(Gui *ui, RPainter *p)
                                     : (i == 0 ? "F2 Actions" : menu_groups[i - 1]);
         int hot = ui->footer_hover == i || (!compact && ui->menu == i + 1);
         Rdraw_rect(
-            p, 12 + i * bw, ui->height - 34, bw - 4, 30, 4,
+            p, 12 + i * bw, ui->height - 34, bw - 4, 30, 0,
             GUI_HEX_COLOR(hot ? gui_theme_current(ui)->selection : gui_theme_current(ui)->raised),
             1);
         gui_text_clip(ui, p, 20 + i * bw, ui->height - 27, bw - 20, 22, label, GUI_COLOR(ui, text),
@@ -450,15 +450,15 @@ void gui_menu_paint(Gui *ui, RPainter *p)
                           : "Click for actions and hover descriptions | F2 opens the complete menu";
         if (tip) {
             float tw = fminf(720, ui->width - 24);
-            Rdraw_rect(p, 12, ui->height - 100, tw, 60, 5, GUI_COLOR(ui, raised), 1);
+            Rdraw_rect(p, 12, ui->height - 100, tw, 60, 0, GUI_COLOR(ui, raised), 1);
             gui_multiline(ui, p, tip, 22, ui->height - 93, tw - 20, 50, 0);
         }
         return;
     }
     GuiRect r = gui_menu_rect(ui);
     int visible = gui_menu_visible(r), n = gui_action_count(ui);
-    Rdraw_rect(p, r.x, r.y, r.w, r.h, 6, GUI_COLOR(ui, raised), 1);
-    Rdraw_rect_outline(p, r.x, r.y, r.w, r.h, 6, 2, GUI_COLOR(ui, accent), 1);
+    Rdraw_rect(p, r.x, r.y, r.w, r.h, 0, GUI_COLOR(ui, raised), 1);
+    Rdraw_rect_outline(p, r.x, r.y, r.w, r.h, 0, 2, GUI_COLOR(ui, accent), 1);
     char title[120];
     snprintf(title, sizeof(title), "%s  |  %d/%d  |  Esc: close",
              ui->menu == 1 ? "ALL ACTIONS" : menu_groups[ui->menu - 2], ui->menu_row + 1, n);
@@ -466,7 +466,7 @@ void gui_menu_paint(Gui *ui, RPainter *p)
     for (int row = ui->menu_offset; row < n && row < ui->menu_offset + visible; row++) {
         float y = r.y + 40 + (row - ui->menu_offset) * 29;
         if (row == ui->menu_row)
-            Rdraw_rect(p, r.x + 5, y, r.w - 10, 28, 3, GUI_COLOR(ui, selection), 1);
+            Rdraw_rect(p, r.x + 5, y, r.w - 10, 28, 0, GUI_COLOR(ui, selection), 1);
         const Action *a = ui->menu == 1 ? NULL : gui_menu_action(ui, row);
         const char *label = a ? a->label : menu_groups[row], *shortcut = a ? a->shortcut : ">";
         float right = a ? fminf(155, r.w * .32f) : 24;
@@ -475,7 +475,7 @@ void gui_menu_paint(Gui *ui, RPainter *p)
                       GUI_COLOR(ui, muted), 12);
     }
     float hy = r.y + r.h - 95;
-    Rdraw_rect(p, r.x + 6, hy, r.w - 12, 89, 4, GUI_COLOR(ui, panel), 1);
+    Rdraw_rect(p, r.x + 6, hy, r.w - 12, 89, 0, GUI_COLOR(ui, panel), 1);
     const Action *a = ui->menu == 1 ? NULL : gui_menu_action(ui, ui->menu_row);
     gui_multiline(
         ui, p,

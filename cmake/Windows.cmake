@@ -51,6 +51,7 @@ if(CCURATE_GUI)
  set(RAVEN_BUILD_WEB OFF CACHE BOOL "" FORCE)
  set(RAVEN_FETCH_VULKAN_HEADERS OFF CACHE BOOL "" FORCE)
  add_subdirectory(vendor/Raven EXCLUDE_FROM_ALL)
+ include(cmake/RavenGeometry.cmake)
  pkg_check_modules(FONTCONFIG REQUIRED IMPORTED_TARGET fontconfig)
  target_sources(ccurate PRIVATE
    src/platform/windows/desktop_windows.c src/platform/windows/fonts_windows.c

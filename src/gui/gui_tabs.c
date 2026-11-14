@@ -27,7 +27,7 @@ void gui_tabs_paint(Gui *ui, RPainter *p)
 {
     for (int i = 0; i < 2; i++) {
         GuiRect r = rect(ui, i);
-        Rdraw_rect(p, r.x, r.y, r.w, r.h, 4,
+        Rdraw_rect(p, r.x, r.y, r.w, r.h, 0,
                    GUI_HEX_COLOR(i == ui->tab ? gui_theme_current(ui)->selection
                                               : gui_theme_current(ui)->raised),
                    1);

@@ -40,8 +40,8 @@ void gui_scrollbar_paint(Gui *ui, RPainter *p, int id, GuiRect track, double tot
         bar->thumb.y += start;
         bar->thumb.h = thumb;
     }
-    Rdraw_rect(p, track.x, track.y, track.w, track.h, 4, GUI_COLOR(ui, raised), 1);
-    Rdraw_rect(p, bar->thumb.x, bar->thumb.y, bar->thumb.w, bar->thumb.h, 4,
+    Rdraw_rect(p, track.x, track.y, track.w, track.h, 0, GUI_COLOR(ui, raised), 1);
+    Rdraw_rect(p, bar->thumb.x, bar->thumb.y, bar->thumb.w, bar->thumb.h, 0,
                GUI_HEX_COLOR(ui->scroll_drag == id ? gui_theme_current(ui)->accent
                              : maximum > 0         ? gui_theme_current(ui)->muted
                                                    : gui_theme_current(ui)->border),

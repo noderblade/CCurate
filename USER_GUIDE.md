@@ -464,6 +464,9 @@ Tango Dark is the initial default. The chosen scheme is saved in the session and
 applies to panes, menus, dialogs and logs. Palette shades are adapted for readable
 surfaces; all file states also have textual labels.
 
+All color schemes use square corners for panels, buttons, tabs, scrollbars,
+menus, tooltips and dialogs, including the startup folder chooser.
+
 **Help > File status legend** opens the legend directly. It is also included in
 **F1** help; scroll the information pane to read all entries.
 

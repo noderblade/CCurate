@@ -106,7 +106,7 @@ static void treemap(Gui *ui, RPainter *p, GuiRect area, int parent)
         r.w = fmaxf(0, r.w - 2);
         r.h = fmaxf(0, r.h - 2);
         u->shapes[i] = (GuiUsageShape){.rect = r, .active = 1};
-        Rdraw_rect(p, r.x, r.y, r.w, r.h, 2, GUI_HEX_COLOR(gui_usage_node_color(ui, i)),
+        Rdraw_rect(p, r.x, r.y, r.w, r.h, 0, GUI_HEX_COLOR(gui_usage_node_color(ui, i)),
                    u->hover == i ? .88f : .45f);
         if (r.w > 65 && r.h > 28) {
             char *safe = display_path(node->row.name);

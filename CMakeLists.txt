@@ -40,6 +40,7 @@ if(CCURATE_GUI)
  set(RAVEN_BUILD_WEB OFF CACHE BOOL "" FORCE)
  set(RAVEN_FETCH_VULKAN_HEADERS OFF CACHE BOOL "" FORCE)
  add_subdirectory(vendor/Raven EXCLUDE_FROM_ALL)
+ include(cmake/RavenGeometry.cmake)
  pkg_check_modules(FONTCONFIG REQUIRED IMPORTED_TARGET fontconfig)
  pkg_check_modules(GIO REQUIRED IMPORTED_TARGET gio-2.0>=2.50)
  target_sources(ccurate PRIVATE

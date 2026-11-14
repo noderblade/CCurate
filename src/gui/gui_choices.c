@@ -92,9 +92,9 @@ void gui_dropdown_paint(Gui *ui, RPainter *p)
         return;
     int first, visible;
     GuiRect r = gui_dropdown_rect(ui, &first, &visible);
-    Rdraw_rect(p, r.x + 4, r.y + 5, r.w, r.h, 8, 0, 0, 0, .35f);
-    Rdraw_rect(p, r.x, r.y, r.w, r.h, 8, GUI_COLOR(ui, raised), 1);
-    Rdraw_rect_outline(p, r.x, r.y, r.w, r.h, 8, 1, GUI_COLOR(ui, accent), 1);
+    Rdraw_rect(p, r.x + 4, r.y + 5, r.w, r.h, 0, 0, 0, 0, .35f);
+    Rdraw_rect(p, r.x, r.y, r.w, r.h, 0, GUI_COLOR(ui, raised), 1);
+    Rdraw_rect_outline(p, r.x, r.y, r.w, r.h, 0, 1, GUI_COLOR(ui, accent), 1);
     gui_text_clip(ui, p, r.x + 12, r.y + 12, r.w - 24, 24,
                   ui->dropdown == 1   ? "LOG LEVEL | arrows / Enter / Esc"
                   : ui->dropdown == 3 ? "SORT | arrows / Enter / Esc"
@@ -107,7 +107,7 @@ void gui_dropdown_paint(Gui *ui, RPainter *p)
             gui_column_label(ui, ui->column_side, i, label);
         float y = r.y + 42 + (i - first) * 30;
         if (i == ui->dropdown_row)
-            Rdraw_rect(p, r.x + 5, y, r.w - 10, 28, 4, GUI_COLOR(ui, selection), 1);
+            Rdraw_rect(p, r.x + 5, y, r.w - 10, 28, 0, GUI_COLOR(ui, selection), 1);
         gui_text_clip(ui, p, r.x + 14, y + 6, r.w - 28, 24,
                       ui->dropdown == 1   ? gui_activity_level_name(i)
                       : ui->dropdown == 4 ? label

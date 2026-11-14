@@ -73,8 +73,8 @@ void gui_log_paint(Gui *ui, RPainter *p, GuiGeometry g)
 {
     GuiRect r = g.pane[4];
     gui_log_clamp(ui);
-    Rdraw_rect(p, r.x, r.y, r.w, r.h, 8, GUI_COLOR(ui, panel), 1);
-    Rdraw_rect_outline(p, r.x, r.y, r.w, r.h, 8, ui->focus == 4 ? 2 : 1,
+    Rdraw_rect(p, r.x, r.y, r.w, r.h, 0, GUI_COLOR(ui, panel), 1);
+    Rdraw_rect_outline(p, r.x, r.y, r.w, r.h, 0, ui->focus == 4 ? 2 : 1,
                        GUI_HEX_COLOR(ui->focus == 4 ? gui_theme_current(ui)->accent
                                                     : gui_theme_current(ui)->border),
                        1);
@@ -86,7 +86,7 @@ void gui_log_paint(Gui *ui, RPainter *p, GuiGeometry g)
     const char *labels[] = {level, ui->log_follow ? "Follow: On" : "Follow: Off", "Hide"};
     for (int i = 0; i < 3; i++) {
         GuiRect b = gui_log_button(g, i);
-        Rdraw_rect(p, b.x, b.y, b.w, b.h, 4, GUI_COLOR(ui, raised), 1);
+        Rdraw_rect(p, b.x, b.y, b.w, b.h, 0, GUI_COLOR(ui, raised), 1);
         gui_text_clip(ui, p, b.x + 8, b.y + 6, b.w - 12, 22, labels[i], GUI_COLOR(ui, text),
                       ui->font_size - 1);
     }

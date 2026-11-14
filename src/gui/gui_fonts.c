@@ -283,8 +283,8 @@ void gui_font_picker_paint(Gui *ui, RPainter *p)
     FontLayout g = gui_font_layout(ui);
     GuiRect r = g.box;
     Rdraw_rect(p, 0, 0, ui->width, ui->height, 0, 0, 0, 0, .45f);
-    Rdraw_rect(p, r.x, r.y, r.w, r.h, 8, GUI_COLOR(ui, panel), 1);
-    Rdraw_rect_outline(p, r.x, r.y, r.w, r.h, 8, 2, GUI_COLOR(ui, accent), 1);
+    Rdraw_rect(p, r.x, r.y, r.w, r.h, 0, GUI_COLOR(ui, panel), 1);
+    Rdraw_rect_outline(p, r.x, r.y, r.w, r.h, 0, 2, GUI_COLOR(ui, accent), 1);
     gui_text_clip(ui, p, r.x + 14, r.y + 13, r.w - 28, 24, "MONOSPACE FONT", GUI_COLOR(ui, text),
                   16);
     char *info = fmt("Filter: %s%s", *ui->font_filter ? ui->font_filter : "",
@@ -306,7 +306,7 @@ void gui_font_picker_paint(Gui *ui, RPainter *p)
          at++) {
         float y = g.list.y + (at - ui->font_scroll) * 28;
         if (at == ui->font_match_row)
-            Rdraw_rect(p, g.list.x, y, g.list.w - 8, 27, 4, GUI_COLOR(ui, selection), 1);
+            Rdraw_rect(p, g.list.x, y, g.list.w - 8, 27, 0, GUI_COLOR(ui, selection), 1);
         gui_text_clip(ui, p, g.list.x + 9 - ui->font_horizontal, y + 5,
                       fmaxf(content_width, view_width), 23,
                       gui_font_label(ui, ui->font_matches[at]), GUI_COLOR(ui, text), 14);
@@ -342,9 +342,9 @@ void gui_font_picker_paint(Gui *ui, RPainter *p)
     const char *labels[] = {"Apply (Enter)", "Cancel (Esc)", "Refresh (F5)"};
     for (int i = 0; i < 3; i++) {
         GuiRect b = g.buttons[i];
-        Rdraw_rect(p, b.x, b.y, b.w, b.h, 4, GUI_COLOR(ui, raised), 1);
+        Rdraw_rect(p, b.x, b.y, b.w, b.h, 0, GUI_COLOR(ui, raised), 1);
         if (ui->font_control == i + 1)
-            Rdraw_rect_outline(p, b.x, b.y, b.w, b.h, 4, 2, GUI_COLOR(ui, accent), 1);
+            Rdraw_rect_outline(p, b.x, b.y, b.w, b.h, 0, 2, GUI_COLOR(ui, accent), 1);
         gui_text_clip(ui, p, b.x + 7, b.y + 6, b.w - 12, 22, labels[i], GUI_COLOR(ui, text), 12);
     }
 }

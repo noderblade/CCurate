@@ -235,16 +235,16 @@ static void button(Gui *ui, RPainter *p, GuiRect r, const char *label, int selec
     if (r.w <= 0 || r.h <= 0)
         return;
     Rdraw_rect(
-        p, r.x, r.y, r.w, r.h, 4,
+        p, r.x, r.y, r.w, r.h, 0,
         GUI_HEX_COLOR(selected ? gui_theme_current(ui)->selection : gui_theme_current(ui)->raised),
         1);
     gui_text_clip(ui, p, r.x + 7, r.y + 4, r.w - 14, r.h - 4, label, GUI_COLOR(ui, text), 12);
 }
 static void panel(Gui *ui, RPainter *p, GuiRect r, int focus)
 {
-    Rdraw_rect(p, r.x, r.y, r.w, r.h, 6, GUI_COLOR(ui, panel), 1);
+    Rdraw_rect(p, r.x, r.y, r.w, r.h, 0, GUI_COLOR(ui, panel), 1);
     Rdraw_rect_outline(
-        p, r.x, r.y, r.w, r.h, 6, focus ? 2 : 1,
+        p, r.x, r.y, r.w, r.h, 0, focus ? 2 : 1,
         GUI_HEX_COLOR(focus ? gui_theme_current(ui)->accent : gui_theme_current(ui)->border), 1);
 }
 static void details_paint(Gui *ui, RPainter *p, GuiRect r)
@@ -354,7 +354,7 @@ void gui_usage_paint(Gui *ui, RPainter *p)
         UsageRow *row = u->result->rows + i;
         float y = g.body.y + (i - u->offset) * ui->row_height;
         if (i == u->selected)
-            Rdraw_rect(p, g.body.x, y, g.body.w, ui->row_height - 1, 2, GUI_COLOR(ui, selection),
+            Rdraw_rect(p, g.body.x, y, g.body.w, ui->row_height - 1, 0, GUI_COLOR(ui, selection),
                        1);
         else if (i % 2)
             Rdraw_rect(p, g.body.x, y, g.body.w, ui->row_height - 1, 0, GUI_COLOR(ui, alternate),
@@ -368,7 +368,7 @@ void gui_usage_paint(Gui *ui, RPainter *p)
                 if (col == 0 && u->result) {
                     for (int n = 0; n < u->result->node_count; n++)
                         if (!strcmp(row->path, u->result->nodes[n].row.path)) {
-                            Rdraw_rect(p, c.x + indent - 13, y + 8, 7, 7, 1,
+                            Rdraw_rect(p, c.x + indent - 13, y + 8, 7, 7, 0,
                                        GUI_HEX_COLOR(gui_usage_node_color(ui, n)), 1);
                             break;
                         }
@@ -456,7 +456,7 @@ void gui_usage_paint(Gui *ui, RPainter *p)
             r.x += r.w * .35f;
             r.w *= .3f;
         }
-        Rdraw_rect(p, r.x, r.y, r.w, r.h, 2, GUI_COLOR(ui, border), 1);
+        Rdraw_rect(p, r.x, r.y, r.w, r.h, 0, GUI_COLOR(ui, border), 1);
     }
     if (u->popup) {
         GuiRect r = {g.tree.x + 8, g.tree.y + 30, fminf(330, ui->width - 40),
@@ -469,7 +469,7 @@ void gui_usage_paint(Gui *ui, RPainter *p)
                       GUI_COLOR(ui, text), 12);
         for (int i = 0; i < USAGE_COLUMNS; i++) {
             if (i == u->popup_row)
-                Rdraw_rect(p, r.x + 4, r.y + 34 + i * 30, r.w - 8, 28, 3, GUI_COLOR(ui, selection),
+                Rdraw_rect(p, r.x + 4, r.y + 34 + i * 30, r.w - 8, 28, 0, GUI_COLOR(ui, selection),
                            1);
             char label[80];
             snprintf(label, sizeof(label), "%s %s",

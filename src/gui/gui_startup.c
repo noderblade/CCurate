@@ -163,6 +163,8 @@ int gui_choose_roots(char **source, char **destination, int historical, const ch
         return -1;
     }
     Rtheme_set_dark(1);
+    Rtheme_set_metric(R_METRIC_CORNER_RADIUS, 0);
+    Rtheme_set_metric(R_METRIC_POPUP_RADIUS, 0);
     Rtheme_set_font(Rfont_get_monospace());
     Rtheme_set_accent(.45f, .62f, .81f);
     s.window = Rwindow_create("CCurate - choose folders", 1000, 640, R_WINDOW_DEFAULT);
