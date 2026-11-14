@@ -310,7 +310,10 @@ children; expanded branches show up to 100 children before a **More entries** ro
 that opens the directory. Zero-byte, hidden and special entries remain visible.
 
 The chart uses **logical file lengths**. A folder's value includes its
-descendants. Rings show successive directory levels; Treemap uses nested
+descendants. Rings show successive directory levels without separator borders;
+lighter and darker shades distinguish levels and siblings within the same branch.
+Entries smaller than a screen pixel remain in the tree and totals, without an
+artificial minimum-width wedge. Treemap uses nested
 rectangles. Both show the current directory as 100%, with one to five visible
 levels. Chart colors match the tree's color markers. Click a chart folder to
 enter it; hover shows its size and percentage without selecting anything. Small

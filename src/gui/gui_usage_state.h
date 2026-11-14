@@ -21,7 +21,8 @@ typedef struct {
 } GuiUsageGeometry;
 typedef struct {
     GuiRect rect;
-    float a0, a1, r0, r1, cx, cy;
+    double a0, a1;
+    float r0, r1, cx, cy;
     int active;
 } GuiUsageShape;
 typedef struct GuiUsage {

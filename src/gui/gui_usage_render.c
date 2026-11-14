@@ -52,6 +52,8 @@ static const char *usage_help =
     "Drag the panel separators or their scrollbars. Shift+wheel pans.\n"
     "Click a chart folder to drill down; click the ring center to go up.\n"
     "Hover only shows information; it never selects an entry.\n\n"
+    "Rings join without borders; alternating shades distinguish levels and siblings.\n"
+    "Subpixel entries remain in the tree and totals, without oversized chart wedges.\n\n"
     "Logical size: sum of file lengths, including observed unverified sizes.\n"
     "Unique here: one copy of each verified nonempty hash in this subtree.\n"
     "Repeated here: additional verified occurrences within this subtree.\n"

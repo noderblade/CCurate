@@ -14,6 +14,12 @@ hover, tree expansion, parent focus, rings/treemap, chart depth, resizing,
 column choices, help, reveal and persisted session preferences. It is included
 in the primary Linux regression runner.
 
+`tests/gui_usage_rings.py` checks native rendered pixels using a catalog with
+7.85 TiB of logical content and leaves as small as one byte. It checks flat
+sector fills, joined rings and distinct sibling/level shades at depths 1, 2, 3
+and 5, 100%/150% scaling and dark/light themes. This catches degenerate-triangle
+rectangles and internal antialiasing seams without creating large payloads.
+
 The optional scale test creates only disposable catalog records and checks
 logical and unique totals for a duplicate-heavy dataset:
 
