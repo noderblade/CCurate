@@ -33,7 +33,7 @@ From the repository root:
 ```sh
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build --parallel
-cmake --build build --parallel --target previewcheck jpegfixture preview_policy_probe workercheck sortcheck activitycheck hashcheck databasecheck navigationcheck refreshcheck inspectioncheck usagecheck
+cmake --build build --parallel --target previewcheck jpegfixture preview_policy_probe workercheck sortcheck activitycheck hashcheck databasecheck navigationcheck refreshcheck inspectioncheck usagecheck identitycheck filesystemprobecheck
 
 cmake -S . -B build-core -DCMAKE_BUILD_TYPE=Release -DCCURATE_GUI=OFF -DCCURATE_MEDIA=OFF
 cmake --build build-core --parallel
@@ -72,6 +72,8 @@ build options; use `ctest --test-dir build -N` to list the configured cases.
 | Lazy refresh | `lazy_refresh.py`, `refresh_driver.c` | Existing/incomplete session resume, unchanged visits without data reads or catalog rewrites, direct-child scope, new/changed/absent paths, failed enumeration, cancellation and selected-subtree discovery before copy |
 | Navigation | `navigation_cache.py`, `navigation_driver.c` | First-page publication before recursive counts, parent anchors, bounded caches, invalidation, filter/sort separation and statistics independent of navigation |
 | Space estimates | `statistics.py` | Unique/repeated/empty content, rejections, retained old versions, missing sources, pending/UNSCANNED entries, incomplete traversal and corrupt destinations |
+| Persistent source identities | `source_identity.py`, `identity_driver.c`, `filesystem_probe_driver.c` | Remount/device changes without rehash or new revisions, real GUID replacement, unknown identity, rollback cache invalidation, schema-2 migration, schema-3 references and ZFS command/mount parsing |
+| Legacy history cleanup | `device_history_cleanup.py` | Dry run, consistent backup, transaction rollback, exact merge criteria, retained/empty-copy references, non-UTF-8 paths, offline use, lock refusal, old schemas, vacuum and JSONL regeneration |
 | Version presentation | `content_history.py`, `inspection_driver.c` | One row per source path across pages, real metadata/content changes, exact timestamps, unknown hashes, historical/pending paths, independent empty files, offline read-only history and bounded version pages |
 | Destination inspection | `destination_inspection.py`, `inspection_driver.c` | Actual destination metadata, indexed source provenance, independent empty files, history and unindexed entries |
 | Removal | `removal.py`, `removal_faults.py` | Confirmation, fresh source/destination verification, refusal of unsafe or archived-only removal, recopy, independent empty files, staging collisions, hard kills and failed commits |
@@ -236,3 +238,10 @@ Windows filesystem and isolation differences are listed in
 build-time Raven geometry adaptations are described in
 [ARCHITECTURE.md](ARCHITECTURE.md). Passing either platform's suite does not
 establish that the other platform or every filesystem is regression-free.
+
+Identity tests use disposable catalogs. The Linux fixture provider simulates
+persistent GUID changes without changing host mounts; a separate provider test
+wraps mount discovery and subprocess launch to validate ZFS pool/dataset property
+arguments and output handling. These are not tests on a live ZFS pool. The cleanup
+suite does not touch an existing user database. Schema/JSONL/maintenance fixtures
+also run in the native Windows CI configuration.

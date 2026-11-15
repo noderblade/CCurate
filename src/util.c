@@ -472,6 +472,7 @@ int sql_rollback(Catalog *c)
     if (!c->db || sqlite3_get_autocommit(c->db))
         return 0;
     sqlite3_progress_handler(c->db, 0, NULL, NULL);
+    c->filesystem_epoch++; /* Registered IDs may have belonged to this transaction. */
     return sql_exec(c, "ROLLBACK");
 }
 int sql_end(Catalog *c, int result)

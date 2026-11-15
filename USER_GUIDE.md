@@ -47,11 +47,11 @@ The occurrence panel explains this exception instead of listing unrelated empty
 files. A later metadata version of the same path can reuse its own empty
 location, but an unrelated empty destination is a name collision.
 
-Existing CCurate sessions upgrade automatically to schema 2. Previously retained
+Existing CCurate sessions upgrade automatically to schema 3. Previously retained
 empty-file paths keep their history and recorded locations, including locations
 shared by older CCurate sessions. The upgrade does not recreate, delete or move
 physical files. New empty files are never attached to those old mappings.
-Use the updated application for upgraded sessions and schema-2 JSONL indexes;
+Use the updated application for upgraded sessions and schema-3 JSONL indexes;
 older versions refuse the newer schema.
 
 ## Build
@@ -231,6 +231,69 @@ invalidate cached pages. The independent statistics worker can finish a whole-dr
 count while you keep navigating. During a data-writing operation, statistics wait
 until it finishes rather than holding a long-lived database snapshot.
 
+## Source identity and remounts
+
+The catalog stores a persistent filesystem identity once and references it by a
+small integer in file records. On ZFS this is the pool GUID plus dataset GUID;
+separate nested datasets get separate dictionary entries. **Source Details** shows the
+filesystem reference and identity. Kernel device numbers may change after a
+remount or reboot; they do not create file versions or clear review/reject flags.
+Real changes to content, mtime, ctime, permissions and other revision metadata
+still appear in history. Access time alone does not trigger a new observation.
+
+Existing sessions open without a full rescan. Old versions lack persistent
+identity, so first visiting/verifying an unbound file may read its content once.
+If it matches, the GUID is attached to that version without generating a new
+history record. Unvisited files remain in the catalog. On Linux, install the ZFS
+`zfs` and `zpool` utilities and allow reading their `guid` properties. If the
+filesystem identity is unavailable, Activity explains it and content verification
+is conservative; no identity is guessed from `device`.
+
+## Cleaning legacy device history
+
+Use the updated CCurate build for future work, then close the application before
+maintenance. The separate Python 3.9+ utility works on schema-2 and schema-3
+sessions, including when the source disk is disconnected. Run it from the project
+root (also included in the Windows package; use `python` there):
+
+```sh
+# Inspect the plan; do not modify the catalog or index.
+python3 scripts/cleanup_device_history.py /path/to/destination
+
+# Create a consistent backup, clean the catalog, and regenerate archive.jsonl.
+python3 scripts/cleanup_device_history.py /path/to/destination --apply
+
+# Put the backup on another disk if necessary.
+python3 scripts/cleanup_device_history.py /path/to/destination --apply \
+  --backup /path/to/backup/catalog-before-cleanup.sqlite
+```
+
+The script merges adjacent records for the same path only when every stored
+field except the legacy device number matches, including timestamps, hashes,
+symlink targets, xattrs, stable identity and retention/copy states. It also removes
+fully identical repeated observations. It preserves genuine metadata/content
+changes and conservatively keeps records with different retention states or
+empty-file locations. Current-version pointers are remapped; current review and
+reject flags, copy mappings and placement events are preserved. It cannot
+reconstruct decisions that an older scanner already reset.
+
+The default backup is a new timestamped `catalog.before-device-cleanup.*.sqlite`
+next to the catalog, with a copy of the pre-cleanup JSONL beside it. The script
+refuses an active application session, pending file operations, unsupported
+schema/references, unsafe session files or insufficient estimated working space.
+It streams the version table with bounded Python memory and uses a disk-backed
+mapping table. Maintenance can take time on millions of observations.
+
+Deleted rows free pages for SQLite to reuse. Add **`--vacuum`** to `--apply` if you
+also want to reduce the database file size; this needs additional temporary space
+and can take substantially longer. Keep the printed backup until you have checked
+the cleaned session. The script never opens source files or deletes curated data.
+If interruption occurs after the catalog commit but before JSONL replacement,
+rerun the script to regenerate the index. After any interruption, do not delete
+SQLite WAL/SHM files. To restore, keep CCurate closed, preserve the entire current
+`.ccurate` directory first, then replace the catalog with its backup without
+carrying over the old catalog's WAL/SHM; restore the paired JSONL as well.
+
 ## Occurrences and version changes
 
 **Content occurrences** lists every recorded source path for the selected content
@@ -248,7 +311,7 @@ first. F9 also accepts `versions`, `prevversions` and `nextversions`. In destina
 context, this is the history of the original **Copied from** source path, when known.
 
 Each transition compares adjacent catalog records and shows only changed fields:
-permissions/type, size, owner/group, timestamps, device/inode, symlink target,
+permissions/type, size, owner/group, timestamps, persistent filesystem identity/inode, symlink target,
 extended attributes/ACLs and metadata errors. `mtime` is modification time; `ctime`
 is filesystem change time, **not creation time**; `btime` is birth time when available.
 Times include stored nanoseconds and the local UTC offset; precision still depends
@@ -567,9 +630,10 @@ cover the source. Subsequent launches use that baseline immediately, even if the
 last scan was interrupted. Use Ctrl+R to finish an incomplete global inventory.
 
 Entering a source folder starts a background check of its immediate children,
-including hidden entries. It compares size, nanosecond mtime/ctime, device/inode
-identity and mode against SQLite. Unchanged entries do not read file contents or
-rewrite their catalog rows. New or changed entries appear as PENDING until
+including hidden entries. It compares size, nanosecond mtime/ctime, persistent
+filesystem identity/inode and mode against SQLite. Unchanged entries with a known
+matching identity do not read file contents or rewrite their catalog rows. Legacy
+unbound entries verify content once before attaching their filesystem identity. New or changed entries appear as PENDING until
 verification completes. Old hashes no longer contribute to live duplicate or
 secured status for those observed changes; retained history remains available.
 Deleted entries and their known descendants become absent only after a complete,

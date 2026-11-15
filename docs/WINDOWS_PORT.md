@@ -86,7 +86,7 @@ remain separate; failure to establish their restrictions blocks decoding.
 | Source | Opened for reading and metadata queries; curation has no source-delete operation |
 | Names | UTF-8 catalog, UTF-16 Windows calls, long-path-aware executable and extended paths |
 | Enumeration | Hidden and system attributes never filter the source listing |
-| File identity | Volume serial number and 64-bit file ID, size and high-resolution timestamps |
+| File identity | Normalized volume GUID reference and 64-bit file ID, size and high-resolution timestamps; runtime serial numbers only support immediate safety checks |
 | Traversal | Handle-relative opens, with reparse points inspected rather than followed |
 | Publication | Exclusive temporary file, SHA-512 verification, no-overwrite rename and recovery journal |
 | Case conflicts | Existing names are not overwritten, including case-insensitive collisions |
@@ -228,6 +228,7 @@ platform builds apply the shared
 | `diagnostics_windows.c` / `diagnostics_windows.h` | Early console attachment, stderr/file capture, startup stages and exception diagnostics |
 | `graphics_windows.c` / `graphics_windows.h` | System Vulkan selection, packaged CPU fallback and external-device lifetime |
 | `fs_windows.c` / `fs_windows.h` | Descriptor adapter, paths, handle-relative I/O, enumeration, locking, durability and space queries |
+| `source_filesystem_windows.c` / shared `include/source_filesystem.h` | Volume GUID discovery, separately compiled from Linux filesystem/ZFS probes |
 | `source_access_windows.c` / shared `include/source_access.h` | Native sharing probe for deferring source files that are open for writing |
 | `metadata_windows.c` | Attributes, SDDL, stream detection and reparse metadata |
 | `process_windows.c` / `process_windows.h` | Restricted process creation, pipes, handle inheritance and Job Objects |

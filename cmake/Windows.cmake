@@ -24,8 +24,8 @@ set(CCURATE_WINDOWS_FILES
  src/platform/windows/preview_windows.c
 )
 add_executable(ccurate WIN32
- src/main.c src/util.c src/activity.c src/catalog.c src/content_details.c src/operations.c src/remove_target.c src/preview.c src/view.c src/view_cache.c src/target_details.c
- src/platform/windows/source_access_windows.c
+ src/main.c src/util.c src/activity.c src/catalog.c src/source_filesystem.c src/content_details.c src/operations.c src/remove_target.c src/preview.c src/view.c src/view_cache.c src/target_details.c
+ src/platform/windows/source_access_windows.c src/platform/windows/source_filesystem_windows.c
  src/platform/windows/main_windows.c src/platform/windows/ccurate.rc
  ${CCURATE_WINDOWS_FILES}
 )
@@ -79,8 +79,8 @@ target_compile_options(diagnosticscheck PRIVATE -Wall -Wextra -Wformat=2)
 target_link_libraries(diagnosticscheck PRIVATE shell32 user32)
 enable_testing()
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
-add_executable(databasecheck tests/database_driver.c src/catalog.c src/content_details.c src/util.c src/activity.c
- src/operations.c src/remove_target.c src/platform/windows/source_access_windows.c
+add_executable(databasecheck tests/database_driver.c src/catalog.c src/source_filesystem.c src/content_details.c src/util.c src/activity.c
+ src/operations.c src/remove_target.c src/platform/windows/source_access_windows.c src/platform/windows/source_filesystem_windows.c
  src/platform/windows/fs_windows.c src/platform/windows/metadata_windows.c)
 target_include_directories(databasecheck PRIVATE include)
 target_compile_definitions(databasecheck PRIVATE _GNU_SOURCE _FILE_OFFSET_BITS=64
@@ -118,9 +118,9 @@ add_test(NAME disk_usage COMMAND ${Python3_EXECUTABLE}
 add_test(NAME statistics COMMAND ${Python3_EXECUTABLE}
  ${CMAKE_CURRENT_SOURCE_DIR}/tests/statistics.py $<TARGET_FILE:ccurate>)
 
-add_executable(inspectioncheck tests/inspection_driver.c src/catalog.c src/content_details.c src/util.c src/activity.c
+add_executable(inspectioncheck tests/inspection_driver.c src/catalog.c src/source_filesystem.c src/content_details.c src/util.c src/activity.c
  src/operations.c src/remove_target.c src/view.c src/view_cache.c src/target_details.c
- src/platform/windows/source_access_windows.c src/platform/windows/fs_windows.c
+ src/platform/windows/source_access_windows.c src/platform/windows/source_filesystem_windows.c src/platform/windows/fs_windows.c
  src/platform/windows/metadata_windows.c)
 target_include_directories(inspectioncheck PRIVATE include)
 target_compile_definitions(inspectioncheck PRIVATE _GNU_SOURCE _FILE_OFFSET_BITS=64
@@ -132,3 +132,8 @@ add_test(NAME destination_inspection COMMAND ${Python3_EXECUTABLE}
 
 add_test(NAME content_history COMMAND ${Python3_EXECUTABLE}
  ${CMAKE_CURRENT_SOURCE_DIR}/tests/content_history.py $<TARGET_FILE:ccurate> $<TARGET_FILE:inspectioncheck>)
+
+add_test(NAME source_identity COMMAND ${Python3_EXECUTABLE}
+ ${CMAKE_CURRENT_SOURCE_DIR}/tests/source_identity.py $<TARGET_FILE:ccurate>)
+add_test(NAME device_history_cleanup COMMAND ${Python3_EXECUTABLE}
+ ${CMAKE_CURRENT_SOURCE_DIR}/tests/device_history_cleanup.py $<TARGET_FILE:ccurate>)

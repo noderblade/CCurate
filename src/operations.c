@@ -1,5 +1,6 @@
 #include "curator.h"
 #include "remove_target.h"
+#include "source_filesystem.h"
 #include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -298,8 +299,19 @@ static int copy_regular(Catalog *c, Entry *e, const char *dst)
     if (check < 0)
         return fail(c, "Source unavailable: %s", e->path);
     int same = !fstat(check, &current) && S_ISREG(current.st_mode) && current.st_size == e->size &&
-               current.st_dev == (dev_t)e->dev && current.st_ino == (ino_t)e->ino &&
-               mtime_ns(&current) == e->mtime;
+               current.st_ino == (ino_t)e->ino && mtime_ns(&current) == e->mtime;
+    int64_t filesystem = same ? source_filesystem(c, check, NULL, &current) : 0;
+    if (filesystem < 0) {
+        close(check);
+        return -1;
+    }
+    same = same && !(filesystem && e->filesystem && filesystem != e->filesystem);
+    /* Unknown identities cannot authorize reuse of an old hash without reading
+     * the source. Runtime dev/ino still guard this live descriptor in hash_fd. */
+    if (same && (!filesystem || !e->filesystem)) {
+        char hash[129];
+        same = !hash_fd(c, check, hash, NULL) && !strcmp(hash, e->hash);
+    }
     close(check);
     sqlite3_stmt *check_stmt = sql_prepare(c, "SELECT ctime FROM versions WHERE id=?");
     sqlite3_bind_int64(check_stmt, 1, e->version);
@@ -346,7 +358,7 @@ static int copy_regular(Catalog *c, Entry *e, const char *dst)
         return fail(c, "Source open: %s", strerror(errno));
     struct stat st;
     if (fstat(src, &st) || !S_ISREG(st.st_mode) || st.st_size != e->size ||
-        st.st_dev != (dev_t)e->dev || st.st_ino != (ino_t)e->ino || mtime_ns(&st) != e->mtime) {
+        !stat_same(&current, &st)) {
         close(src);
         return fail(c, "Source changed; rescan before copying: %s", e->path);
     }

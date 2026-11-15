@@ -81,6 +81,8 @@ for name in ['README.md', 'USER_GUIDE.md', 'FORMAT.md', 'THIRD_PARTY.md', 'CHANG
              'ARCHITECTURE.md', 'TESTING.md']:
     shutil.copy2(name, destination / name)
 shutil.copytree('docs', destination / 'docs', dirs_exist_ok=True)
+(destination / 'scripts').mkdir(exist_ok=True)
+shutil.copy2('scripts/cleanup_device_history.py', destination / 'scripts/cleanup_device_history.py')
 (destination / 'BUILD_ENVIRONMENT.txt').write_text(
     subprocess.check_output(['pacman', '-Q'], text=True, encoding='utf-8'), encoding='utf-8')
 license_dir = destination / 'licenses'

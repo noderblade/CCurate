@@ -1,6 +1,7 @@
-#include "curator.h"
 #include "content_details.h"
+#include "curator.h"
 #include "source_access.h"
+#include "source_filesystem.h"
 #include "source_refresh.h"
 #include <dirent.h>
 #include <errno.h>
@@ -160,6 +161,17 @@ int catalog_open(Catalog *c, const char *source, const char *destination, int br
             "DELETE FROM settings WHERE key='hash_groups_ready';"
             "PRAGMA user_version=2;COMMIT;"))
         return -1;
+    if (version < 3 &&
+        sql_exec(
+            c,
+            "BEGIN IMMEDIATE;"
+            "CREATE TABLE source_filesystems(id INTEGER PRIMARY KEY,identity TEXT UNIQUE "
+            "NOT NULL,name TEXT NOT NULL);"
+            "ALTER TABLE versions ADD COLUMN filesystem INTEGER REFERENCES source_filesystems(id);"
+            "ALTER TABLE discoveries ADD COLUMN filesystem INTEGER REFERENCES "
+            "source_filesystems(id);"
+            "PRAGMA user_version=3;COMMIT;"))
+        return -1;
     if (sql_exec(c, group_schema))
         return -1;
     char *old = setting(c, "source", "");
@@ -201,6 +213,7 @@ int catalog_open(Catalog *c, const char *source, const char *destination, int br
 }
 void catalog_close(Catalog *c)
 {
+    source_filesystems_close(c);
     source_writers_reset(c);
     activity_log(c, LOG_INFO, "session.close", NULL, NULL,
                  "Session closing; completed work remains saved");
@@ -367,22 +380,31 @@ int scan_one(Catalog *c, const char *path, int full, int64_t generation)
         close(pfd);
         return -1;
     }
-    s = sql_prepare(
-        c, "SELECT e.id,e.current,v.dev,v.ino,v.size,v.mode,v.mtime,v.ctime,v.hash,e.error FROM "
-           "entries e LEFT JOIN versions v ON v.id=e.current WHERE e.path=?");
+    int64_t filesystem = source_filesystem(c, pfd, leaf, &st);
+    if (filesystem < 0) {
+        free(leaf);
+        close(pfd);
+        return -1;
+    }
+    s = sql_prepare(c, "SELECT "
+                       "e.id,e.current,v.filesystem,v.ino,v.size,v.mode,v.mtime,v.ctime,v.hash,e."
+                       "error,v.uid,v.gid FROM "
+                       "entries e LEFT JOIN versions v ON v.id=e.current WHERE e.path=?");
     bind_text(s, 1, path);
     sqlite3_step(s);
     int64_t eid = sqlite3_column_int64(s, 0), old = sqlite3_column_int64(s, 1);
-    int same =
-        old && sqlite3_column_int64(s, 2) == (int64_t)st.st_dev &&
-        sqlite3_column_int64(s, 3) == (int64_t)st.st_ino &&
+    int64_t previous_filesystem = sqlite3_column_int64(s, 2);
+    int identity_changed = filesystem && previous_filesystem && filesystem != previous_filesystem;
+    int same_metadata =
+        old && !identity_changed && sqlite3_column_int64(s, 3) == (int64_t)st.st_ino &&
         sqlite3_column_int64(s, 4) == st.st_size && sqlite3_column_int64(s, 5) == st.st_mode &&
-        sqlite3_column_int64(s, 6) == mtime_ns(&st) && sqlite3_column_int64(s, 7) == ctime_ns(&st);
+        sqlite3_column_int64(s, 6) == mtime_ns(&st) &&
+        sqlite3_column_int64(s, 7) == ctime_ns(&st) && sqlite3_column_int64(s, 10) == st.st_uid &&
+        sqlite3_column_int64(s, 11) == st.st_gid;
+    int same = same_metadata && filesystem && filesystem == previous_filesystem;
     if (S_ISREG(st.st_mode) && (!sqlite3_column_text(s, 8) || !*(char *)sqlite3_column_text(s, 8)))
         same = 0;
-    int same_metadata = same;
     const char *previous_error = (const char *)sqlite3_column_text(s, 9);
-    int retry_unscanned = previous_error && !strncmp(previous_error, "UNSCANNED:", 10);
     if (previous_error && *previous_error)
         same = 0;
     char old_hash[129] = {0};
@@ -468,17 +490,42 @@ int scan_one(Catalog *c, const char *path, int full, int64_t generation)
         free(attrs);
         return -1;
     }
-    if ((same || (retry_unscanned && same_metadata)) && !*err && !*meta_error &&
-        !strcmp(hash, old_hash)) {
+    /* Binding a legacy record to a filesystem is not a file revision. Compare
+     * verified content and all revision metadata; atime remains observational. */
+    int reusable = 0;
+    if (same_metadata && !*err && !*meta_error && !strcmp(hash, old_hash)) {
+        s = sql_prepare(c, "SELECT btime IS ? AND link IS ? AND attrs IS ? AND meta_error='' "
+                           "FROM versions WHERE id=?");
+        sqlite3_bind_int64(s, 1, born);
+        bind_text(s, 2, link);
+        bind_text(s, 3, attrs);
+        sqlite3_bind_int64(s, 4, old);
+        reusable = sqlite3_step(s) == SQLITE_ROW && sqlite3_column_int(s, 0);
+        sqlite3_finalize(s);
+    }
+    if (reusable) {
+        int result = 0;
+        if (!previous_filesystem && filesystem) {
+            s = sql_prepare(c, "UPDATE versions SET filesystem=? WHERE id=?");
+            sqlite3_bind_int64(s, 1, filesystem);
+            sqlite3_bind_int64(s, 2, old);
+            int step = sqlite3_step(s);
+            sqlite3_finalize(s);
+            if (step != SQLITE_DONE)
+                result = sql_error(c, step, "bind source filesystem");
+        }
         free(link);
         free(attrs);
-        clear_discovery(c, path);
-        update_error(c, path, "");
-        return 0;
+        if (!result) {
+            clear_discovery(c, path);
+            update_error(c, path, "");
+        }
+        return result;
     }
-    s = sql_prepare(c, "INSERT INTO "
-                       "versions(eid,mode,size,uid,gid,mtime,ctime,atime,btime,dev,ino,hash,link,"
-                       "attrs,meta_error) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)");
+    s = sql_prepare(
+        c, "INSERT INTO "
+           "versions(eid,mode,size,uid,gid,mtime,ctime,atime,btime,filesystem,ino,hash,link,"
+           "attrs,meta_error) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)");
     sqlite3_bind_int64(s, 1, eid);
     sqlite3_bind_int64(s, 2, st.st_mode);
     sqlite3_bind_int64(s, 3, st.st_size);
@@ -488,7 +535,8 @@ int scan_one(Catalog *c, const char *path, int full, int64_t generation)
     sqlite3_bind_int64(s, 7, ctime_ns(&st));
     sqlite3_bind_int64(s, 8, (int64_t)st.st_atim.tv_sec * 1000000000 + st.st_atim.tv_nsec);
     sqlite3_bind_int64(s, 9, born);
-    sqlite3_bind_int64(s, 10, st.st_dev);
+    if (filesystem)
+        sqlite3_bind_int64(s, 10, filesystem);
     sqlite3_bind_int64(s, 11, st.st_ino);
     bind_text(s, 12, *hash ? hash : NULL);
     bind_text(s, 13, link);
@@ -551,20 +599,31 @@ static int plan_one(Catalog *c, const char *path, int full, int64_t generation, 
              (*path ? fstatat(parent, leaf, &st, AT_SYMLINK_NOFOLLOW) : fstat(parent, &st)) == 0;
     int saved_errno = errno;
     *directory = ok && S_ISDIR(st.st_mode);
+    int64_t filesystem = ok ? source_filesystem(c, parent, leaf, &st) : 0;
+    if (filesystem < 0) {
+        close(parent);
+        free(leaf);
+        return -1;
+    }
+    int metadata_same = 0, identity_known = 0;
     int regular = ok && S_ISREG(st.st_mode) && !kernel_fs(parent), same = 0, has_hash = 0,
         had_error = 0, present = 0, pending = 0;
-    sqlite3_stmt *q =
-        sql_prepare(c, "SELECT v.dev,v.ino,v.size,v.mode,v.mtime,v.ctime,v.hash,e.error,e.present,"
-                       "EXISTS(SELECT 1 FROM discoveries d WHERE d.eid=e.id) "
-                       "FROM entries e JOIN versions v ON v.id=e.current WHERE e.path=?");
+    sqlite3_stmt *q = sql_prepare(
+        c, "SELECT v.filesystem,v.ino,v.size,v.mode,v.mtime,v.ctime,v.hash,e.error,e.present,"
+           "EXISTS(SELECT 1 FROM discoveries d WHERE d.eid=e.id),v.uid,v.gid "
+           "FROM entries e JOIN versions v ON v.id=e.current WHERE e.path=?");
     bind_text(q, 1, path);
     if (sqlite3_step(q) == SQLITE_ROW && ok) {
-        same = sqlite3_column_int64(q, 0) == (int64_t)st.st_dev &&
-               sqlite3_column_int64(q, 1) == (int64_t)st.st_ino &&
-               sqlite3_column_int64(q, 2) == st.st_size &&
-               sqlite3_column_int64(q, 3) == st.st_mode &&
-               sqlite3_column_int64(q, 4) == mtime_ns(&st) &&
-               sqlite3_column_int64(q, 5) == ctime_ns(&st);
+        int64_t previous_filesystem = sqlite3_column_int64(q, 0);
+        identity_known = filesystem && filesystem == previous_filesystem;
+        metadata_same =
+            !(filesystem && previous_filesystem && filesystem != previous_filesystem) &&
+            sqlite3_column_int64(q, 1) == (int64_t)st.st_ino &&
+            sqlite3_column_int64(q, 2) == st.st_size && sqlite3_column_int64(q, 3) == st.st_mode &&
+            sqlite3_column_int64(q, 4) == mtime_ns(&st) &&
+            sqlite3_column_int64(q, 5) == ctime_ns(&st) &&
+            sqlite3_column_int64(q, 10) == st.st_uid && sqlite3_column_int64(q, 11) == st.st_gid;
+        same = metadata_same && identity_known;
         const char *hash = (char *)sqlite3_column_text(q, 6),
                    *error = (char *)sqlite3_column_text(q, 7);
         has_hash = hash && *hash;
@@ -623,10 +682,13 @@ static int plan_one(Catalog *c, const char *path, int full, int64_t generation, 
             (sx.stx_mask & STATX_BTIME))
             born = (int64_t)sx.stx_btime.tv_sec * 1000000000 + sx.stx_btime.tv_nsec;
         int64_t values[] = {eid,       st.st_size, mtime_ns(&st), born,     st.st_mode,
-                            st.st_uid, st.st_gid,  st.st_dev,     st.st_ino};
-        q = sql_prepare(c, "INSERT OR REPLACE INTO discoveries VALUES(?,?,?,?,?,?,?,?,?)");
+                            st.st_uid, st.st_gid,  filesystem,    st.st_ino};
+        q = sql_prepare(
+            c, "INSERT OR REPLACE INTO discoveries "
+               "(eid,size,mtime,btime,mode,uid,gid,filesystem,ino) VALUES(?,?,?,?,?,?,?,?,?)");
         for (int i = 0; i < 9; i++)
-            sqlite3_bind_int64(q, i + 1, values[i]);
+            if (i != 7 || filesystem)
+                sqlite3_bind_int64(q, i + 1, values[i]);
         step = sqlite3_step(q);
         sqlite3_finalize(q);
         if (step != SQLITE_DONE) {
@@ -635,7 +697,7 @@ static int plan_one(Catalog *c, const char *path, int full, int64_t generation, 
             free(leaf);
             return fail(c, "Cannot publish scan metadata");
         }
-        if (!same) {
+        if (!metadata_same) {
             q = sql_prepare(c, "UPDATE entries SET reviewed=0,discarded=0 WHERE id=?");
             sqlite3_bind_int64(q, 1, eid);
             sqlite3_step(q);
@@ -952,7 +1014,8 @@ stopped:
 }
 
 static const char *entry_columns =
-    "e.id,v.id,v.size,v.mtime,v.btime,v.mode,v.uid,v.gid,v.dev,v.ino,e.path,e.parent,e.name,(CASE "
+    "e.id,v.id,v.size,v.mtime,v.btime,v.mode,v.uid,v.gid,v.filesystem,v.ino,e.path,e.parent,e.name,"
+    "(CASE "
     "(v.mode&61440) WHEN 32768 THEN 'file' WHEN 16384 THEN 'directory' WHEN 40960 THEN 'symlink' "
     "WHEN 4096 THEN 'fifo' WHEN 49152 THEN 'socket' WHEN 24576 THEN 'block' WHEN 8192 THEN "
     "'character' ELSE e.kind "
@@ -972,7 +1035,7 @@ static void row_entry(sqlite3_stmt *s, Entry *e)
     e->mode = sqlite3_column_int64(s, 5);
     e->uid = sqlite3_column_int64(s, 6);
     e->gid = sqlite3_column_int64(s, 7);
-    e->dev = sqlite3_column_int64(s, 8);
+    e->filesystem = sqlite3_column_int64(s, 8);
     e->ino = sqlite3_column_int64(s, 9);
     char **str[] = {&e->path, &e->parent, &e->name,  &e->kind,
                     &e->hash, &e->dest,   &e->state, &e->error};
@@ -989,8 +1052,8 @@ static void row_entry(sqlite3_stmt *s, Entry *e)
  * immutable and independently browsable if a scan is cancelled. */
 static void observed_entry(Catalog *c, Entry *e)
 {
-    sqlite3_stmt *q =
-        sql_prepare(c, "SELECT size,mtime,btime,mode,uid,gid,dev,ino FROM discoveries WHERE eid=?");
+    sqlite3_stmt *q = sql_prepare(
+        c, "SELECT size,mtime,btime,mode,uid,gid,filesystem,ino FROM discoveries WHERE eid=?");
     sqlite3_bind_int64(q, 1, e->id);
     if (sqlite3_step(q) == SQLITE_ROW) {
         e->size = sqlite3_column_int64(q, 0);
@@ -999,7 +1062,7 @@ static void observed_entry(Catalog *c, Entry *e)
         e->mode = sqlite3_column_int64(q, 3);
         e->uid = sqlite3_column_int64(q, 4);
         e->gid = sqlite3_column_int64(q, 5);
-        e->dev = sqlite3_column_int64(q, 6);
+        e->filesystem = sqlite3_column_int64(q, 6);
         e->ino = sqlite3_column_int64(q, 7);
         free(e->kind);
         e->kind = xstrdup(kind_of(e->mode));
@@ -1390,6 +1453,7 @@ char *entry_details_view(Catalog *c, const Entry *e, int page, DetailHistory *hi
             badd(&b, "No retained content; an empty directory may have retained metadata.\n");
         sqlite3_finalize(locations);
     }
+    source_filesystem_details(c, &b, e->filesystem);
     badd(&b,
          "\nModified: %s\nCreated: %s\nUID:GID %lld:%lld\nReviewed: %s | Rejected: "
          "%s\nPresent on source: %s\n",
@@ -1614,14 +1678,27 @@ int export_archive(Catalog *c)
         return -1;
     }
     fprintf(f,
-            "{\"type\":\"header\",\"schema\":2,\"hash_algorithm\":\"sha512\",\"generated_ns\":\"%"
+            "{\"type\":\"header\",\"schema\":3,\"hash_algorithm\":\"sha512\",\"generated_ns\":\"%"
             "lld\",\"encoding\":\"path_b64 is authoritative POSIX bytes\",",
             (long long)now_ns());
     output_path(f, "source", c->source);
     fprintf(f, "}\n");
     int step;
-    sqlite3_stmt *s =
-        sql_prepare(c, "SELECT hash,size,dest,state,verified FROM objects WHERE dest IS NOT NULL "
+    sqlite3_stmt *s = sql_prepare(c, "SELECT id,identity,name FROM source_filesystems ORDER BY id");
+    if (!s)
+        goto failed;
+    while ((step = sqlite3_step(s)) == SQLITE_ROW) {
+        char *identity = json_string((const char *)sqlite3_column_text(s, 1));
+        char *name = json_string((const char *)sqlite3_column_text(s, 2));
+        fprintf(f, "{\"type\":\"filesystem\",\"id\":%lld,\"identity\":%s,\"name\":%s}\n",
+                (long long)sqlite3_column_int64(s, 0), identity, name);
+        free(identity);
+        free(name);
+    }
+    if (step != SQLITE_DONE)
+        goto query_failed;
+    sqlite3_finalize(s);
+    s = sql_prepare(c, "SELECT hash,size,dest,state,verified FROM objects WHERE dest IS NOT NULL "
                        "AND hash IN(SELECT hash FROM versions WHERE accepted=1)");
     if (!s)
         goto failed;
@@ -1640,7 +1717,8 @@ int export_archive(Catalog *c)
         c, "SELECT e.path,(CASE (v.mode&61440) WHEN 32768 THEN 'file' WHEN 16384 THEN 'directory' "
            "WHEN 40960 THEN 'symlink' WHEN 4096 THEN 'fifo' WHEN 49152 THEN 'socket' WHEN 24576 "
            "THEN 'block' WHEN 8192 THEN 'character' ELSE e.kind "
-           "END),v.id,v.mode,v.size,v.uid,v.gid,v.mtime,v.ctime,v.atime,v.btime,v.dev,v.ino,v.hash,"
+           "END),v.id,v.mode,v.size,v.uid,v.gid,v.mtime,v.ctime,v.atime,v.btime,v.filesystem,v.ino,"
+           "v.hash,"
            "v.link,v.attrs,v.meta_error,v.id=e.current,z.dest,z.state FROM versions v JOIN entries "
            "e ON "
            "e.id=v.eid LEFT JOIN empty_copies z ON z.version=v.id WHERE v.accepted=1 ORDER BY "
@@ -1653,13 +1731,17 @@ int export_archive(Catalog *c)
         fprintf(f,
                 ",\"kind\":\"%s\",\"version\":%lld,\"mode\":%lld,\"size\":%lld,\"uid\":%lld,"
                 "\"gid\":%lld,\"mtime_ns\":\"%lld\",\"ctime_ns\":\"%lld\",\"atime_ns\":\"%lld\","
-                "\"btime_ns\":\"%lld\",\"dev\":\"%lld\",\"ino\":\"%lld\"",
+                "\"btime_ns\":\"%lld\",\"ino\":\"%lld\"",
                 sqlite3_column_text(s, 1), (long long)sqlite3_column_int64(s, 2),
                 (long long)sqlite3_column_int64(s, 3), (long long)sqlite3_column_int64(s, 4),
                 (long long)sqlite3_column_int64(s, 5), (long long)sqlite3_column_int64(s, 6),
                 (long long)sqlite3_column_int64(s, 7), (long long)sqlite3_column_int64(s, 8),
                 (long long)sqlite3_column_int64(s, 9), (long long)sqlite3_column_int64(s, 10),
-                (long long)sqlite3_column_int64(s, 11), (long long)sqlite3_column_int64(s, 12));
+                (long long)sqlite3_column_int64(s, 12));
+        if (sqlite3_column_type(s, 11) != SQLITE_NULL)
+            fprintf(f, ",\"filesystem\":%lld", (long long)sqlite3_column_int64(s, 11));
+        else
+            fprintf(f, ",\"filesystem\":null");
         if (sqlite3_column_text(s, 13))
             fprintf(f, ",\"sha512\":\"%s\"", sqlite3_column_text(s, 13));
         if (sqlite3_column_text(s, 14)) {
@@ -1726,7 +1808,9 @@ static char *json_value(Catalog *c, const char *line, const char *key)
     char *k = fmt("$.%s", key);
     bind_text(s, 2, k);
     free(k);
-    char *v = sqlite3_step(s) == SQLITE_ROW ? xstrdup((char *)sqlite3_column_text(s, 0)) : NULL;
+    char *v = sqlite3_step(s) == SQLITE_ROW && sqlite3_column_type(s, 0) != SQLITE_NULL
+                  ? xstrdup((char *)sqlite3_column_text(s, 0))
+                  : NULL;
     sqlite3_finalize(s);
     return v;
 }
@@ -1771,7 +1855,9 @@ int import_archive(Catalog *c, const char *filename)
         }
         if (!strcmp(type, "header")) {
             char *ver = json_value(c, line, "schema");
-            header = ver && (atoi(ver) == 1 || atoi(ver) == 2);
+            int schema_number = ver ? atoi(ver) : 0;
+            int valid_header = !header && schema_number >= 1 && schema_number <= 3;
+            header = valid_header ? schema_number : 0;
             free(ver);
             if (!header) {
                 free(type);
@@ -1788,6 +1874,32 @@ int import_archive(Catalog *c, const char *filename)
             free(type);
             rc = fail(c, "Missing manifest header");
             break;
+        } else if (!strcmp(type, "filesystem")) {
+            char *id = json_value(c, line, "id"), *identity = json_value(c, line, "identity"),
+                 *name = json_value(c, line, "name");
+            char *end = NULL;
+            errno = 0;
+            long long number = id ? strtoll(id, &end, 10) : 0;
+            if (header != 3 || !id || !end || *end || errno || number <= 0 || !identity ||
+                !*identity || !name) {
+                rc = fail(c, "Invalid filesystem identity record");
+            } else {
+                s = sql_prepare(c,
+                                "INSERT INTO source_filesystems(id,identity,name) VALUES(?,?,?)");
+                if (!s)
+                    rc = -1;
+                else {
+                    sqlite3_bind_int64(s, 1, number);
+                    bind_text(s, 2, identity);
+                    bind_text(s, 3, name);
+                    if (sqlite3_step(s) != SQLITE_DONE)
+                        rc = fail(c, "Conflicting filesystem identity record");
+                    sqlite3_finalize(s);
+                }
+            }
+            free(id);
+            free(identity);
+            free(name);
         } else if (!strcmp(type, "object")) {
             char *hash = json_value(c, line, "sha512"), *dest = json_path(c, line, "destination"),
                  *size = json_value(c, line, "size");
@@ -1831,16 +1943,27 @@ int import_archive(Catalog *c, const char *filename)
             sqlite3_step(s);
             sqlite3_finalize(s);
             free(par);
-            s = sql_prepare(c, "INSERT INTO "
-                               "versions(eid,mode,size,uid,gid,mtime,ctime,atime,btime,dev,ino,"
-                               "hash,link,attrs,meta_error,accepted) VALUES((SELECT id FROM "
-                               "entries WHERE path=?),?,?,?,?,?,?,?,?,?,?,?,?,?,?,1)");
+            s = sql_prepare(c,
+                            "INSERT INTO "
+                            "versions(eid,mode,size,uid,gid,mtime,ctime,atime,btime,filesystem,ino,"
+                            "hash,link,attrs,meta_error,accepted) VALUES((SELECT id FROM "
+                            "entries WHERE path=?),?,?,?,?,?,?,?,?,?,?,?,?,?,?,1)");
             bind_text(s, 1, path);
-            const char *keys[] = {"mode",     "size",     "uid",      "gid", "mtime_ns",
-                                  "ctime_ns", "atime_ns", "btime_ns", "dev", "ino"};
+            const char *keys[] = {"mode",     "size",     "uid",      "gid",        "mtime_ns",
+                                  "ctime_ns", "atime_ns", "btime_ns", "filesystem", "ino"};
             for (int i = 0; i < 10; i++) {
                 char *v = json_value(c, line, keys[i]);
-                sqlite3_bind_int64(s, i + 2, v ? atoll(v) : 0);
+                if (i != 8)
+                    sqlite3_bind_int64(s, i + 2, v ? atoll(v) : 0);
+                else if (v && header == 3) {
+                    char *end = NULL;
+                    errno = 0;
+                    long long number = strtoll(v, &end, 10);
+                    if (!end || *end || errno || number <= 0)
+                        rc = fail(c, "Invalid filesystem reference");
+                    else
+                        sqlite3_bind_int64(s, i + 2, number);
+                }
                 free(v);
             }
             char *hash = json_value(c, line, "sha512"), *link = json_path(c, line, "link"),

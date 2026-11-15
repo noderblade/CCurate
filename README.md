@@ -340,7 +340,9 @@ directory to continue curation. See [archive format](FORMAT.md) and
   exposed ACLs, are recorded. The destination receives ordinary permissions and
   timestamps, not an exact recreation of ownership, ACLs or privileged mode bits.
 - **The source can change.** Folder visits compare size, nanosecond mtime/ctime,
-  identity and mode with the saved version. Unvisited folders and global statistics
+  persistent filesystem identity and mode with the saved version. Kernel device
+  renumbering does not create file revisions; see
+  [source identity and legacy cleanup](USER_GUIDE.md#source-identity-and-remounts). Unvisited folders and global statistics
   reflect the catalog's last observations. **Scan → Refresh this folder** checks
   the current folder; **Ctrl+R** checks the entire tree and **Ctrl+Shift+R** forces
   rehashing. There is no continuous watcher or atomic filesystem snapshot.

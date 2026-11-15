@@ -100,7 +100,7 @@ with tempfile.TemporaryDirectory(prefix='ccurate-scroll-sort-') as tmp:
             snap('wide-table-and-text')
             # Both textual panes expose independent horizontal and vertical bars.
             for ident,x0,y0,x1,y1 in ((4,939,733,939,1137),(5,28,1147,925,1147),
-                                       (6,1895,733,1895,1137),(7,982,1147,1879,1147)):
+                                       (6,1895,771,1895,1137),(7,982,1147,1879,1147)):
                 drag(x0,y0,x1,y1)
                 position,maximum=scroll_event(ident); assert position>0 and maximum>0,(ident,position,maximum)
             snap('preview-details-scrolled')

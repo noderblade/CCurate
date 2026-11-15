@@ -70,7 +70,7 @@ class ScanRegressions:
         (self.dst / 'Second/marker').write_bytes(b'')
         self.run_app('audit')
         records = self.manifest()
-        self.assertEqual(records[0]['schema'], 2)
+        self.assertEqual(records[0]['schema'], 3)
         self.assertFalse(any(r.get('type') == 'object' and r.get('size') == 0 for r in records))
         fresh = self.root / 'rebuilt'; fresh.mkdir()
         shutil.copytree(self.dst / 'Relocated', fresh / 'Relocated')
@@ -99,9 +99,12 @@ class ScanRegressions:
             db.execute("UPDATE versions SET accepted=0 WHERE id=(SELECT current FROM entries WHERE path='B/marker')")
             db.execute("UPDATE entries SET discarded=1 WHERE path='B/marker'")
             db.execute('DROP TABLE empty_copies')
+            db.execute('ALTER TABLE versions DROP COLUMN filesystem')
+            db.execute('ALTER TABLE discoveries DROP COLUMN filesystem')
+            db.execute('DROP TABLE source_filesystems')
             db.execute('PRAGMA user_version=1')
         self.run_app('export')
-        self.assertEqual(self.sql('PRAGMA user_version'), [(2,)])
+        self.assertEqual(self.sql('PRAGMA user_version'), [(3,)])
         self.assertEqual(self.empty_rows(), [('A/marker', 1, 'legacy-empty', 'verified'),
                                            ('B/marker', 0, 'legacy-empty', 'verified'), ('B/other', 0, None, None)])
         self.run_app('restore', 'B/marker')
@@ -115,7 +118,7 @@ class ScanRegressions:
     def test_schema_one_empty_manifest_import(self):
         self.empty_fixture()
         self.run_app('copy', 'A/marker', 'First')
-        records = self.manifest(); records[0]['schema'] = 1
+        records = [r for r in self.manifest() if r['type'] != 'filesystem']; records[0]['schema'] = 1
         for record in records:
             if record.get('type') == 'entry':
                 for key in ('destination', 'destination_b64', 'destination_state'):

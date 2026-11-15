@@ -2,12 +2,24 @@
 
 ## Unreleased
 
+- Normalize persistent source filesystem identities into a GUID dictionary with
+  integer references in catalog and schema-3 JSONL entries. Use ZFS pool/dataset
+  GUIDs, Linux filesystem UUIDs and Windows volume GUIDs; never create a revision,
+  rehash or reset decisions merely because a saved kernel device number changed.
+- Upgrade catalogs lazily without a startup rescan. Verify unbound legacy files
+  before attaching identity to their existing version. Keep real metadata/content
+  changes and immediate open/read replacement checks.
+- Add an offline Python utility to back up and remove redundant device-only
+  observations, preserve retained/copy references and current decisions, regenerate
+  JSONL and optionally vacuum. Default to a dry-run plan.
+- Update the native scrollbar regression for the Details history toolbar.
+
 - Show each source path once in content occurrences, including clearly labelled
   historical-only links. Page distinct paths instead of individual metadata records.
 - Add expandable version changes to source/destination Details with buttons,
   Preview menu actions, Ctrl+Shift+V and Ctrl+Shift+PgUp/PgDn. Compare recorded
   SHA-512 content and metadata separately; display timestamp changes with nanoseconds
-  and UTC offset. Reuse existing catalogs without a rescan or format migration.
+  and UTC offset. History display uses existing observations without rescanning.
 
 - Use square corners across application-drawn panels, buttons, tabs, scrollbars,
   menus, dialogs and tooltips. Adapt build-directory copies of Raven geometry

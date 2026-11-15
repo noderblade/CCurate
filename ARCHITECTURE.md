@@ -78,6 +78,10 @@ results; they do not start synchronous scans or decode files while drawing.
 | `src/catalog.c` | Source inventory, versions, catalog queries and JSONL import/export |
 | `src/operations.c` | Copy/reuse, destination moves, recovery, audit and reconciliation |
 | `src/remove_target.c` / `include/remove_target.h` | Confirmed destination-copy removal, source verification, journaling and recovery |
+| `src/source_filesystem.c` / `include/source_filesystem.h` | Normalized persistent identity registration, descriptor-pinned runtime cache and Details formatting |
+| `src/platform/linux/source_filesystem_linux.c` | ZFS pool/dataset GUIDs and Linux filesystem UUID discovery |
+| `src/platform/windows/source_filesystem_windows.c` | Windows volume GUID discovery |
+| `scripts/cleanup_device_history.py` | Offline, backed-up removal of redundant legacy device history |
 | `src/source_refresh.c` / `include/source_refresh.h` | Lazy direct-child refresh, metadata comparison and copy-subtree preparation |
 | `src/preview.c` | Format decoders and the isolated preview subprocess protocol |
 | `src/preview_jpeg.c` | Direct libjpeg scanline thumbnails and bounded EXIF orientation parsing |
@@ -130,7 +134,10 @@ Cancellation is set before launching/superseding work, avoiding a worker-start
 race. Copy preflight expands only the selected directory subtree.
 
 The catalog planner compares observed metadata to the saved current version.
-Unchanged entries require neither data reads nor main-catalog writes. Temporary
+Unchanged entries with matching known persistent identities require neither data
+reads nor main-catalog writes. Old unbound records verify content once before
+attaching an identity without creating a revision. Unknown identities never use
+runtime device numbers as a durable substitute. Temporary
 SQLite tables hold the current directory listing and changed-entry queue. New or
 changed observations commit in batches; each verified entry commits separately.
 Pending entries are excluded from live hash groups while accepted old versions
@@ -260,7 +267,7 @@ after each chunk. Deferred observations leave immutable retained versions intact
 
 Empty regular files use `empty_copies`, keyed by version, instead of a shared
 `objects` hash mapping. Live/history queries, target state, audit, copy recovery,
-destination moves and schema-2 export resolve this table alongside nonempty objects.
+destination moves and schema-3 export resolve this table alongside nonempty objects.
 
 Windows bootstrap diagnostics live in `diagnostics_windows.c/.h` and are initialized
 before runtime setup or Raven initialization. A non-inheritable stderr pipe copies
@@ -285,3 +292,21 @@ retention policy, JSONL format or deduplication accounting changes are involved.
 History visibility/page state travels with asynchronous view requests/results, so
 obsolete selections cannot overwrite current details. Expanding history does not
 restart file preview decoding.
+
+### Persistent filesystem cache
+
+The write-owning Catalog caches one descriptor and dictionary ID per observed
+runtime device. Open descriptors pin mounts so that a recycled device number
+cannot alias a cached filesystem. These numbers are memory-only lookup keys;
+versions contain integer foreign keys to `source_filesystems`. Rollback increments
+an epoch so an ID inserted by an aborted transaction is resolved again before use.
+Probing occurs on the data worker, once per mounted filesystem per session; ZFS
+subprocesses have bounded output and a five-second timeout each. GUID strings do
+not consume space per file. Linux and Windows probes compile separately.
+
+The cleanup helper operates under the same session lock, backs up through
+SQLite's backup API, builds a disk-backed old-to-kept version map, remaps references
+before deletion and checks foreign keys. It streams a replacement retained-only
+JSONL, commits the catalog, then atomically replaces the index. An interruption
+between those last steps leaves the previous complete index; rerunning republishes
+it. No cleanup policy is embedded in normal application startup.

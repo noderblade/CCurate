@@ -79,7 +79,7 @@ enum {
     VF_CTIME,
     VF_ATIME,
     VF_BTIME,
-    VF_DEV,
+    VF_FILESYSTEM,
     VF_INO,
     VF_HASH,
     VF_LINK,
@@ -88,8 +88,8 @@ enum {
     VF_FIELD_COUNT,
     HISTORY_PAGE_SIZE = 16
 };
-static const char *fields[VF_FIELD_COUNT] = {"mode",  "size",  "uid",   "gid",       "mtime",
-                                             "ctime", "atime", "btime", "dev",       "ino",
+static const char *fields[VF_FIELD_COUNT] = {"mode",  "size",  "uid",   "gid",        "mtime",
+                                             "ctime", "atime", "btime", "filesystem", "ino",
                                              "hash",  "link",  "attrs", "meta_error"};
 static const char *labels[VF_FIELD_COUNT] = {"Type / permissions",
                                              "Size (bytes)",
@@ -99,7 +99,7 @@ static const char *labels[VF_FIELD_COUNT] = {"Type / permissions",
                                              "ctime",
                                              "atime",
                                              "btime",
-                                             "Device",
+                                             "Filesystem reference",
                                              "Inode",
                                              "SHA-512",
                                              "Symlink target",
@@ -137,6 +137,16 @@ static int equal_value(sqlite3_stmt *q, int a, int b)
     const void *av = sqlite3_column_blob(q, a), *bv = sqlite3_column_blob(q, b);
     int n = sqlite3_column_bytes(q, a);
     return n == sqlite3_column_bytes(q, b) && (!n || !memcmp(av, bv, n));
+}
+
+static int equal_field(sqlite3_stmt *q, int field)
+{
+    int a = 5 + field * 2, b = a + 1;
+    /* Filling previously unknown provenance is not a file change. */
+    if (field == VF_FILESYSTEM &&
+        (sqlite3_column_type(q, a) == SQLITE_NULL || sqlite3_column_type(q, b) == SQLITE_NULL))
+        return 1;
+    return equal_value(q, a, b);
 }
 
 static void value_text(Buf *out, sqlite3_stmt *q, int column, int field)
@@ -246,7 +256,7 @@ void content_version_history(Catalog *c, Buf *out, int64_t entry_id, int64_t sel
         }
         int changed = 0;
         for (int i = 0; i < VF_FIELD_COUNT; i++)
-            changed += !equal_value(q, 5 + i * 2, 6 + i * 2);
+            changed += !equal_field(q, i);
         int hash_column = 5 + VF_HASH * 2;
         int comparable = sqlite3_column_bytes(q, hash_column) == 128 &&
                          sqlite3_column_bytes(q, hash_column + 1) == 128;
@@ -259,7 +269,7 @@ void content_version_history(Catalog *c, Buf *out, int64_t entry_id, int64_t sel
             badd(out, "  Content comparison unavailable (no pair of recorded SHA-512 hashes).\n");
         for (int i = 0; i < VF_FIELD_COUNT; i++) {
             int newer = 5 + i * 2, older = newer + 1;
-            if (equal_value(q, newer, older))
+            if (equal_field(q, i))
                 continue;
             if (i == VF_ATTRS) {
                 badd(out, "  xattrs / ACLs: changed (full values retained in catalog).\n");

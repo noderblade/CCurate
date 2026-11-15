@@ -1,4 +1,4 @@
-# CCurate portable archive format — schema 2
+# CCurate portable archive format — schema 3
 
 The file `.ccurate/archive.jsonl` is UTF-8 JSON Lines. Each line is one
 complete JSON object. This is a full export, not a journal to replay. Publishing
@@ -12,6 +12,7 @@ authoritative transactional session while a batch is in progress.
 | `type` | Purpose | Principal fields |
 |---|---|---|
 | `header` | Format and original root hint | `schema`, `hash_algorithm`, `generated_ns`, `source`, `source_b64` |
+| `filesystem` | One persistent source filesystem identity | `id`, `identity`, `name` |
 | `object` | One physical copy per nonempty content hash | `sha512`, `size`, `destination`, `destination_b64`, `state`, `verified_ns` |
 | `entry` | Retained occurrence/version at an original path | `path`, `path_b64`, `kind`, `version`, `sha512` when regular, original metadata, per-entry `destination` for empty files |
 | `event` | Copy, move, removal and recovery history | `id`, `time_ns`, `operation`, `from`, `from_b64`, `to`, `to_b64`, optional `sha512` |
@@ -39,9 +40,10 @@ readable field is a display spelling and may contain escaped byte values.
 New software must use `_b64` for exact reconstruction.
 
 SHA-512 is 128 lowercase hexadecimal characters. It identifies regular-file
-content, not names, permissions, xattrs or symbolic-link text. A hardlink's
-original relationship can be inferred from retained `dev` and `ino`; the archive
-does not create hardlinks on the destination.
+content, not names, permissions, xattrs or symbolic-link text. Matching known
+`filesystem` and `ino` values can suggest a historical hardlink relationship,
+but inode reuse and observations made at different times prevent treating this
+as proof. The archive does not create hardlinks on the destination.
 
 Entry metadata:
 
@@ -49,15 +51,17 @@ Entry metadata:
 - `size`, `uid`, `gid`: integer values from the source.
 - `mtime_ns`, `ctime_ns`, `atime_ns`, `btime_ns`: decimal strings, Unix nanoseconds.
   A zero birth time means unavailable. `ctime` means inode-change time.
-- `dev`, `ino`: decimal strings for original device/inode identity.
+- `filesystem`: integer reference to a preceding `filesystem` record, or `null`
+  when unavailable. GUIDs are never repeated in each entry.
+- `ino`: decimal string for the observed inode/file ID. Runtime `dev` is omitted.
 - `link`, `link_b64`: symbolic-link target, when applicable.
 - `xattrs`: array of `{name_b64, value_b64}`; POSIX ACL xattrs are retained here
   when the filesystem exposes them. `metadata_error` records incomplete reads.
 - `current_at_export`: whether this version was the latest observed version of
   its source path. Older retained versions are still valid archive entries.
 
-Windows uses the same schema. `dev` is the volume serial number and `ino` the
-64-bit file ID; `uid` and `gid` are -1, and mode bits are synthetic display
+Windows uses the same schema. `filesystem` refers to the Windows volume GUID
+and `ino` is the 64-bit file ID; `uid` and `gid` are -1, and mode bits are synthetic display
 values. The `xattrs` array carries `windows.file_attributes` (hexadecimal),
 `windows.security_descriptor_sddl` (owner/group/DACL SDDL), and `windows.streams`
 (a JSON array of stream names and sizes), with their names and UTF-8 values
@@ -86,8 +90,8 @@ review markers, pending operations or UI state; those belong to `catalog.sqlite`
 
 ## Session persistence
 
-`PRAGMA user_version=2`. The catalog stores `settings`, `entries`, `versions`,
-`rejected_retention`, `objects`, `empty_copies`, `operations`, `events`, `hash_groups`,
+`PRAGMA user_version=3`. The catalog stores `settings`, `entries`, `versions`,
+`source_filesystems`, `rejected_retention`, `objects`, `empty_copies`, `operations`, `events`, `hash_groups`,
 `scan_queue` and `discoveries`. Disk Usage initialization also creates
 `usage_clock`, `usage_dirty_dirs` and `usage_dirty_hashes` for revision and
 invalidation tracking. Indexes support paged listing, content lookups and
@@ -131,7 +135,7 @@ A subsequent scan rebuilds the plan and reuses hashes of completed, unchanged fi
 Neither table adds unretained entries to the portable archive.
 
 `discoveries` stores the latest unverified metadata for each encountered path:
-entry ID, size, mtime, birth time, mode, UID/GID and device/inode. Entries become
+entry ID, size, mtime, birth time, mode, UID/GID, filesystem reference and inode. Entries become
 visible as enumeration commits batches, before the SHA-512 pass starts. Live
 views overlay these observations and use `pending` status without inventing a
 hash or verified copy. Historical views use retained `versions`.
@@ -154,6 +158,46 @@ tables in `catalog.sqlite` identify changes since its last complete generation.
 Use **Rebuild** in Disk Usage to recalculate it; this does not rescan or rehash
 source files. The cache is not a substitute for backing up the session catalog.
 
+## Persistent source filesystem identities (schema 3)
+
+`source_filesystems(id INTEGER PRIMARY KEY, identity TEXT UNIQUE, name TEXT)`
+stores each discovered identity once. `versions.filesystem` and
+`discoveries.filesystem` are nullable integer foreign keys to that table.
+The portable index uses the same dictionary/reference design:
+
+```json
+{"type":"filesystem","id":1,"identity":"zfs:1234567890123456789:9876543210987654321","name":"tank/archive"}
+```
+
+An entry then contains `"filesystem":1`. IDs are local to this catalog/index;
+`name` is a readable label, not the identity key. A source tree spanning several
+ZFS datasets has a dictionary row per dataset, not one GUID copied into every file.
+
+Linux ZFS uses `zfs:<pool-guid>:<dataset-guid>`, read with `zpool get` and `zfs get`
+without a shell. `load_guid`, mount IDs and `st_dev` are never persisted as source
+identity. Other Linux filesystems use `FS_IOC_GETFSUUID`, falling back to
+`/dev/disk/by-uuid` on older kernels. A missing identity remains unknown; the
+scanner verifies content instead of trusting an unbound cached hash. Windows
+uses `GetFinalPathNameByHandleW(VOLUME_NAME_GUID)`; volumes without that facility
+also remain unknown. An unavailable probe is logged once per cached filesystem.
+
+Opening a schema-2 catalog adds the table and nullable references without
+rewriting all file records or starting a full scan. On first verification of an
+unbound current record, identical content and revision metadata attach the GUID
+to the existing version, preserving its ID and review/reject/retention state.
+Different known GUIDs trigger verification and a new observation. Earlier
+historical versions remain unbound when their original filesystem cannot be
+proven. Runtime device/inode comparisons still protect an individual open/read
+operation against replacement; a device number from a previous session never
+causes a revision.
+
+Legacy `dev` columns remain unused and nullable to avoid rebuilding multi-million
+row tables during startup. New records leave them null. Import accepts schemas
+1, 2 and 3; old device numbers are ignored, never converted to guessed GUIDs.
+Schema-3 dictionary conflicts and dangling references fail the entire import.
+Use the separate [cleanup utility](USER_GUIDE.md#cleaning-legacy-device-history)
+to remove redundant old observations and clear existing device values.
+
 ## Upgrading schema 1
 
 Opening a schema-1 CCurate database creates `empty_copies(version PRIMARY KEY,
@@ -162,10 +206,10 @@ mappings, removes empty `objects`, and rebuilds the duplicate cache. Historical
 metadata and placements remain intact. Legacy empty paths may still share their
 previous destination; migration does not modify files. New copies are independent.
 
-The importer accepts JSONL schemas 1 and 2. Schema-1 empty objects are converted
+The importer accepts JSONL schemas 1, 2 and 3. Schema-1 empty objects are converted
 to per-entry mappings. Schema-2 empty destinations are linked to the newly
 assigned local version IDs. Imported destinations start unchecked and need Audit.
-Exports always use schema 2; older CCurate versions reject that schema.
+Exports now use schema 3; older CCurate versions reject the newer schema.
 Empty files cannot be relocated by content hash during Reconcile: identical
 empty content cannot identify a missing path. Move them through CCurate to keep
 mappings current.
