@@ -3,8 +3,9 @@
 Implementation lives in separately compiled C translation units. Headers declare
 interfaces and types; they have include guards and compile on their own. CCurate
 does not include `.c` files or implementation fragments such as `.inc` files.
-CMake lists each application source explicitly. Bundled Raven remains an
-unmodified third-party dependency.
+CMake lists each application source explicitly. The pinned Raven source tree is
+preserved under `vendor/Raven`; CMake compiles adapted copies of three files for
+CCurate's square-corner geometry (see [Raven integration](#raven-integration)).
 
 ## Native interface
 
@@ -44,8 +45,9 @@ Palette and menu tables live in their owning `.c` files.
 
 When GUI arguments are incomplete, `main` runs `gui_choose_roots` before opening
 a catalog. Its local `Startup` context owns widget callbacks and updates the
-caller's allocated root strings. It uses Raven's built-in modal folder browser,
-which receives keyboard events independently of the startup shortcuts. Cancelling
+caller's allocated root strings. Linux uses Raven's built-in modal folder browser,
+which receives keyboard events independently of the startup shortcuts. Windows
+uses its native folder picker through `dialog_windows.c`. Cancelling
 returns without opening a catalog. Acceptance canonicalizes and validates the
 roots, then shuts down the chooser's Raven instance. `main` opens the catalog
 and `gui_main` initializes the workspace normally. Catalog failures reopen the
@@ -75,11 +77,14 @@ results; they do not start synchronous scans or decode files while drawing.
 | `src/main.c` | Command-line parsing and selection of GUI, CLI, preview-worker or desktop-launcher mode |
 | `src/catalog.c` | Source inventory, versions, catalog queries and JSONL import/export |
 | `src/operations.c` | Copy/reuse, destination moves, recovery, audit and reconciliation |
+| `src/remove_target.c` / `include/remove_target.h` | Confirmed destination-copy removal, source verification, journaling and recovery |
+| `src/source_refresh.c` / `include/source_refresh.h` | Lazy direct-child refresh, metadata comparison and copy-subtree preparation |
 | `src/preview.c` | Format decoders and the isolated preview subprocess protocol |
 | `src/preview_jpeg.c` | Direct libjpeg scanline thumbnails and bounded EXIF orientation parsing |
 | `src/desktop_open.c` | Asynchronous GIO launcher subprocess, desktop-user privilege drop and result pipe |
 | `src/view.c` | Independent view/statistics readers, saved preferences and storage metrics |
 | `src/view_cache.c` / `include/view_cache.h` | Worker-owned source/history page cache with SQLite commit invalidation |
+| `src/target_details.c` / `include/target_details.h` | Destination metadata, indexed provenance and inspection without a source scan |
 | `src/activity.c` | Bounded recent log, asynchronous file writer and log recovery |
 | `src/font_catalog.c` | Fontconfig discovery and asynchronous font-file reads |
 | `src/util.c` | Hashing, filesystem/path helpers and formatting |
@@ -170,7 +175,7 @@ connection. Rendering and input consume immutable results and never run analysis
 SQL. The cache connection attaches the source catalog with `mode=ro`; the small
 catalog connection installs tracking triggers and saves preferences. No source
 filesystem data is read. CMake shares these platform-independent C files between
-Linux and Windows; Raven remains unchanged.
+Linux and Windows.
 
 The cache stores directories, two scopes of direct/subtree totals, duplicate
 groups and repeated-byte corrections. It does not copy entries, versions or
@@ -201,7 +206,23 @@ content contributes observed logical size but never a deduplication claim.
 The application build enables `-Wmissing-prototypes` and `-Wstrict-prototypes`
 alongside the existing warnings. Validation checks individual header inclusion,
 full and core-only builds, existing integration tests and native GUI regressions.
-See [TESTING.md](TESTING.md) for executed checks and environmental limits.
+See [TESTING.md](TESTING.md) for reproducible checks, dated results and environmental limits.
+
+## Raven integration
+
+The vendored files and licenses match the pinned dependency recorded in
+[THIRD_PARTY.md](THIRD_PARTY.md). Both platform builds include
+[`cmake/RavenGeometry.cmake`](cmake/RavenGeometry.cmake) after configuring Raven.
+It creates build-directory copies of `widgets/common.c`, `widgets/text_input.c`
+and `widget/window.c`, then substitutes those copies in the Raven target.
+The adaptations make focus decorations, scrollbar thumbs, tooltips and dialogs
+honor zero corner-radius metrics. Other UI geometry is controlled by CCurate's
+theme and canvas code; the Disk Usage rings remain circular.
+
+The adapter checks the expected source snippets and stops configuration if a
+future Raven update no longer matches. No generated file is written into the
+vendor tree. Raven's own Markdown describes its upstream snapshot, not CCurate's
+platform support, theme choices or validation results.
 
 ## Windows boundary
 

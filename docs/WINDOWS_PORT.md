@@ -219,13 +219,16 @@ Send the latest startup and launcher logs when reporting a silent exit.
 All Windows implementation files are under `src/platform/windows/`; their
 interfaces are under `include/platform/windows/`. They are compiled only by
 `cmake/Windows.cmake`. The original Linux CMake graph and Linux service
-implementations remain in place. Vendored Raven is unchanged.
+implementations remain in place. The vendored Raven tree is preserved; both
+platform builds apply the shared
+[square-corner adapter](../ARCHITECTURE.md#raven-integration) to build-directory copies.
 
 | Windows file | Responsibility |
 | --- | --- |
 | `diagnostics_windows.c` / `diagnostics_windows.h` | Early console attachment, stderr/file capture, startup stages and exception diagnostics |
 | `graphics_windows.c` / `graphics_windows.h` | System Vulkan selection, packaged CPU fallback and external-device lifetime |
 | `fs_windows.c` / `fs_windows.h` | Descriptor adapter, paths, handle-relative I/O, enumeration, locking, durability and space queries |
+| `source_access_windows.c` / shared `include/source_access.h` | Native sharing probe for deferring source files that are open for writing |
 | `metadata_windows.c` | Attributes, SDDL, stream detection and reparse metadata |
 | `process_windows.c` / `process_windows.h` | Restricted process creation, pipes, handle inheritance and Job Objects |
 | `preview_windows.c` / `preview_windows.h` | Preview protocol, cancellation and worker restrictions |
@@ -245,13 +248,14 @@ SQL, hashing, sorting and GUI behavior stays common.
 Every push and pull request runs two independent jobs:
 
 - **Linux primary regression suite:** full and core builds, integration tests,
-  million-entry paging, live scans, sorting, media processes and seven native GUI
-  suites under Xvfb/software Vulkan.
+  million-entry paging, live scans, sorting, media processes and the native GUI
+  suites listed in [`tests/run_linux.py`](../tests/run_linux.py), under Xvfb/software Vulkan.
 - **Windows x64 UCRT64:** native compilation, disposable NTFS integration fixtures,
   real restricted preview workers, Win32/Vulkan GUI checks, packaging and tests
   without the development toolchain on the application's `PATH`.
 
-A green compile alone is insufficient. Both jobs must pass before integrating
-platform work into the primary branch. See [TESTING.md](../TESTING.md) for the
-recorded results and remaining validation limits. CI artifacts contain logs and
-Windows GUI screenshots.
+A green compile alone is insufficient. The rolling Windows download is published
+only after both jobs succeed for `main`; a direct push to `main` starts those
+checks after the commit is pushed. See [TESTING.md](../TESTING.md) for reproducible
+checks, dated results and validation limits. CI artifacts contain logs and Windows
+GUI screenshots.

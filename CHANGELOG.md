@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+- Use square corners across application-drawn panels, buttons, tabs, scrollbars,
+  menus, dialogs and tooltips. Adapt build-directory copies of Raven geometry
+  sources while preserving the vendored snapshot and licenses.
+- Add the Disk Usage workspace with a catalog-backed source tree, logical-size
+  rings/treemap, exact subtree unique/repeated totals, unverified coverage and
+  duplicate occurrence details. Keep a disposable persistent analysis index,
+  bounded navigation caches and saved view preferences; no new source scan is needed.
+- Fix tiny ring sectors and seams between levels; use alternating branch shades
+  instead of separator borders. Add native rendering checks across chart depths,
+  themes and UI scales.
+- Follow the focused file pane for preview and details, including destination
+  metadata, recorded source occurrences and retained history.
+- Consolidate documentation around current behavior, scan completion, unknown
+  deduplication coverage and reproducible checks. Remove obsolete preview notes
+  while preserving dated scale measurements in TESTING.md.
+
 - Add Remove destination copy to Files, Ctrl+Delete, F9 and the CLI. Require
   confirmation plus fresh SHA-512 checks of the destination and a live source
   occurrence; refuse deletion of archived-only versions and modified content.
@@ -36,8 +52,9 @@
 - Add explicit before/after-deduplication bytes, saved bytes, redundant copies,
   independent empty files, unscanned coverage and remaining data to Ctrl+B / Help
   → Statistics / balance. Show unique contents and savings on the top bar.
-- Keep the existing session schema and recorded hashes; no database rebuild or
-  full rehash is needed. Add large-tree navigation and space-estimate regressions.
+- These navigation/statistics changes reuse recorded hashes without requiring
+  a database rebuild or full rehash. Add large-tree navigation and space-estimate
+  regressions.
 
 - Bundle Mesa Lavapipe for automatic CPU rendering on Windows when system Vulkan
   cannot initialize or present to a window. Add `CCurate-Software.cmd` and the
@@ -50,9 +67,9 @@
 
 - Release unfinished SQLite transactions after failed commits and cancelled view
   queries. Stop failed scan batches cleanly and allow retry in the same session.
-- Start live GUI scans before initial view requests so occurrence-cache rebuilding
-  does not compete with startup scanning. Preserve the previous JSONL index when
-  its database snapshot cannot be read or committed.
+- Start a new session's initial GUI scan before view requests so occurrence-cache
+  rebuilding does not compete with startup scanning. Preserve the previous JSONL
+  index when its database snapshot cannot be read or committed.
 - Log incomplete-scan recovery and startup database failures, including SQLite
   error codes and the failing operation; distinguish session-lock access errors
   from a live second instance. Keep existing catalogs and WAL data in place.

@@ -1,8 +1,10 @@
 # CCurate user guide
 
 Detailed controls, session behavior, preview limits and recovery procedures for
-CCurate 0.1.0. For the problem it solves and the main workflow, start with
-[README.md](README.md).
+the source revision containing this guide. The executable version is currently
+0.1.0; subsequent changes are recorded under **Unreleased** in
+[CHANGELOG.md](CHANGELOG.md). For the problem it solves and the main workflow,
+start with [README.md](README.md).
 
 Linux remains the primary platform. The experimental native Windows package uses
 `ccurate.exe`; see [the Windows guide](docs/WINDOWS_PORT.md) for platform-specific
@@ -13,6 +15,14 @@ The Linux executable is `ccurate`. Session state is stored in `.ccurate` on the
 destination. The interface uses [Raven](https://github.com/oscar-soirey/Raven),
 bundled with the source. All application text is English; user filenames and
 metadata keep their original spelling.
+
+Quick links: [build](#build), [startup](#choosing-folders-at-startup),
+[scan progress](#status-bar-and-scan-progress), [controls](#workflow-and-keyboard),
+[Disk Usage](#disk-usage-workspace), [status legend](#color-schemes-and-file-status-legend),
+[complete a scan](#completing-an-interrupted-or-incomplete-scan),
+[remove a destination copy](#remove-destination-copy),
+[recovery](#recovery-and-database-locks), [previews](#previews),
+[offline browsing](#portable-index-and-browsing-without-the-old-drive).
 
 ## Inventory and retained history
 
@@ -49,7 +59,7 @@ older versions refuse the newer schema.
 Requirements: Linux, a C11 compiler, CMake >= 3.20, pkg-config, and development
 headers for:
 
-- OpenSSL, SQLite3 with JSON support, libarchive and libmagic;
+- OpenSSL, SQLite3 with JSON SQL functions and `RETURNING` support, libarchive and libmagic;
 - X11, Vulkan, Fontconfig and GIO >= 2.50, plus a working Vulkan driver at runtime;
 - libjpeg (including libjpeg-turbo), GdkPixbuf, Poppler GLib and FFmpeg libraries: avformat, avcodec, avutil, swscale.
 
@@ -162,11 +172,12 @@ These are file lengths, not physical block consumption after ZFS compression.
 The temporary file of an active export is excluded from JSONL size. Once the
 export is published, the counter switches to the new file. SQLite can retain
 freed pages for reuse, so the database need not shrink when the scan queue is
-dropped. The top bar also shows **Unique** (logical data after deduplication),
+dropped. The top bar also shows **Unique** (verified logical data after deduplication),
 **Saved** (duplicate data avoided), **To secure** (additional known content
 without a verified destination copy), and secured/rejected counts. These use the
 last calculated balance and refresh after an operation. `Unique*` means the scan
-coverage is incomplete. **Ctrl+B** or **Help → Statistics / balance** opens the
+coverage is incomplete; unverified bytes are not included in Unique or Saved.
+**Ctrl+B** or **Help → Statistics / balance** opens the
 full report; the `stats` and `balance` commands are equivalent.
 
 Scanning has three visible phases:
@@ -334,9 +345,12 @@ or a breadcrumb to navigate back. Parent navigation restores selection and scrol
 B each contain one identical 10 MiB file, each folder has 10 MiB unique and 0 B
 repeated. Their parent has 20 MiB logical, 10 MiB unique and 10 MiB repeated.
 `Unique here*` / `Repeated here*` means only the verified subset is accounted for.
-For that subset, unique plus repeated equals verified logical bytes. The details
-panel lists matching current source occurrences, including those outside the
-selected directory, and the indexed destination location when one exists.
+Within one subtree and scope, **Logical size = Unique here + Repeated here +
+Unverified**. For example, 100 GiB logical can consist of 60 GiB unique,
+20 GiB repeated and 20 GiB unverified. The last 20 GiB may add new unique content
+or turn out to be duplicates; the final deduplicated size is not yet known.
+The details panel lists matching current source occurrences, including those
+outside the selected directory, and the indexed destination location when one exists.
 
 Empty files do not form duplicate groups. Symlinks and special objects contribute
 0 B of regular-file content and retain their metadata; links are not traversed.
@@ -440,8 +454,9 @@ The default is **System monospace (automatic)**, resolved using Fontconfig.
 **Bundled Roboto Mono** is always available, even with no compatible installed
 fonts. Font discovery and font-file reads use a background worker. The renderer
 validates fixed ASCII character widths before applying a face. The chosen font
-covers file panes, previews/details text, menus, logs, native dialogs, inputs,
+covers file panes, previews/details text, menus, logs, Raven dialogs, inputs,
 buttons and tooltips. Existing UI scaling (50–400%) also scales the font.
+The native Windows folder picker and system window decorations use system fonts.
 
 The chooser includes scalable TrueType/OpenType fonts, compatible TTC collection
 faces and styles reported as mono/dual-width by Fontconfig. Symbol-only faces,
@@ -464,8 +479,10 @@ Tango Dark is the initial default. The chosen scheme is saved in the session and
 applies to panes, menus, dialogs and logs. Palette shades are adapted for readable
 surfaces; all file states also have textual labels.
 
-All color schemes use square corners for panels, buttons, tabs, scrollbars,
-menus, tooltips and dialogs, including the startup folder chooser.
+All color schemes use square corners for application-drawn panels, buttons,
+tabs, scrollbars, menus, tooltips and dialogs, including the Raven startup
+folder browser on Linux. Native Windows dialogs and system window decorations
+follow the operating system's appearance.
 
 **Help > File status legend** opens the legend directly. It is also included in
 **F1** help; scroll the information pane to read all entries.
@@ -528,7 +545,8 @@ this explicitly includes its descendants so new files in unvisited folders are
 not silently omitted. Other full scans, copies and audits still serialize writes.
 
 Use **Scan → Refresh this folder** or **F9: refresh** to check a folder again without
-leaving it. **Ctrl+R** checks the whole tree; **Ctrl+Shift+R** reads every file again.
+leaving it. **Ctrl+R** checks the whole tree; **Ctrl+Shift+R** forces rehashing of
+eligible regular files. Busy or unreadable files can still be deferred.
 There is no periodic or filesystem-event watcher. Unvisited paths and global
 statistics remain a baseline, not a claim that the entire live source is current.
 Metadata comparison cannot detect changes that preserve every compared field.
@@ -713,8 +731,10 @@ There is no continuous filesystem watcher.
 **UNSCANNED** entries remain in the live tree, Details and the unsecured filter.
 They cannot be copied or counted as secured until a later successful scan. The
 scanner continues with other files; reasons are recorded as warnings in Activity
-and `.ccurate/activity.log`. Close the editing application and press **Ctrl+R**,
-or restart CCurate, to retry. Retained older versions remain available in history.
+and `.ccurate/activity.log`. Close the editing application and use **Scan →
+Refresh this folder** for the current directory, or **Ctrl+R** for the whole tree.
+Restarting alone does not retry unvisited folders. Retained older versions remain
+available in history.
 A harmless read-only open handle is not a reason to skip a file.
 
 Linux checks a cached snapshot of writable descriptors under `/proc` (refreshed
@@ -747,6 +767,29 @@ Schema versions are checked; an application refuses a schema newer than it suppo
 To copy a session, close the application and preserve the whole `.ccurate`
 directory. Keep the source mounted at the same path between sessions.
 
+### Completing an interrupted or incomplete scan
+
+Reopen the same source and destination, then choose **Scan → Scan entire source**
+or press **Ctrl+R**. This enumerates the whole source again, reuses hashes of
+unchanged verified files, and hashes new, changed or previously unscanned files.
+The saved catalog is the baseline; it is not discarded. Existing sessions do
+not automatically restart an interrupted whole-tree scan.
+
+Let the operation finish, then open **Ctrl+B** or **F9: stats**. Check both
+**Unscanned / changing files: 0** and **Complete source traversal: yes**. A stopped
+worker or a completed progress bar alone does not establish complete coverage.
+If errors remain, open **Activity** and select **Warning** or **Error**, or inspect
+`DESTINATION/.ccurate/activity.log`. Resolve the reported cause and run Ctrl+R
+again. Busy files may need their writer closed; an inaccessible path or I/O error
+needs its own cause addressed.
+
+**Ctrl+Shift+R** forces hashes even when metadata is unchanged. It is available
+for an intentional full verification, but is not required just to finish missing
+work. **Refresh this folder** only checks immediate children; **Disk Usage →
+Rebuild** only recalculates catalog statistics. Neither completes a whole-tree
+scan. On a live source, a successful scan remains an observation over time rather
+than an atomic filesystem snapshot.
+
 ### Recovery and database locks
 
 After a forced exit or a killed process, reopen the same source and destination.
@@ -769,7 +812,7 @@ If reopening fails:
    Windows or the process list on Linux for an instance that is still running.
    Close database viewers that may have an open write transaction too.
 2. Reopen CCurate with the same directories. If a scan failed while the window
-   stayed open, use **Scan > Scan source** / **Ctrl+R** after resolving the
+   stayed open, use **Scan > Scan entire source** / **Ctrl+R** after resolving the
    conflict. No catalog reset or import is required.
 3. If the error persists, inspect `DESTINATION/.ccurate/activity.log`. Database
    errors include the primary/extended SQLite codes and failing operation, for
@@ -851,8 +894,11 @@ a 20-second parent deadline, 1 GiB process address space, and 512 MiB per tempor
 file/shared-memory object. The scratch-file limit must be nonzero: it also applies
 to anonymous `memfd` buffers, and newer GdkPixbuf/Glycin loaders need writable
 scratch storage even when decoding a small image. Source descriptors are opened
-read-only; scratch writes are not writes to the source file. Images larger than
-256 MiB are not fully decoded. Files are never executed by the preview worker. Preview failures report
+read-only; scratch writes are not writes to the source file. JPEG input files
+larger than 256 MiB are refused; other image loaders read at most 256 MiB of
+encoded input. This is an input-byte limit, not a decoded-image memory allowance.
+Decoded images remain subject to worker and decoder memory limits. Files are
+never executed by the preview worker. Preview failures report
 specific decoder/worker diagnostics and generate warning records. Failures before
 packet delivery identify libjpeg or the GdkPixbuf runtime version; decoder-returned errors
 also retain bounded worker stderr. A resource-limit setup failure is reported
@@ -891,7 +937,7 @@ The **Deduplication / space estimate** report covers current, present,
 non-rejected regular files. It shows:
 
 - Logical bytes before deduplication and the number of source file paths.
-- Logical bytes after deduplication: one copy of each known nonempty content.
+- Logical bytes after deduplication: one copy of each verified nonempty content.
 - Redundant copies, saved bytes and their percentage of successfully hashed bytes.
 - Empty files counted separately, each requiring its own metadata/destination.
 - Additional known data still needing a verified destination copy.
@@ -900,8 +946,11 @@ non-rejected regular files. It shows:
 
 An incomplete traversal or unscanned content makes the deduplicated total a known
 lower bound, explicitly marked **KNOWN CONTENT ONLY**. It is not proof that all
-source data fits. Previously retained historical versions, the database, JSONL,
-filesystem blocks and metadata are extra. ZFS compression, sparse allocation and
+source data fits. For this report's scope, **Before deduplication = After
+deduplication + Duplicate data saved + Unscanned / changing bytes**. Human-readable
+sizes are rounded; the before/after/saved totals also include exact byte counts.
+Previously retained historical versions, the database, JSONL, filesystem blocks
+and metadata are extra. ZFS compression, sparse allocation and
 reservations also affect physical space usage. A complete estimate reads the
 catalog, not the source contents; on very large databases it can take time while
 the interface remains usable.

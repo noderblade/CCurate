@@ -1,393 +1,237 @@
 # Validation
 
-## Disk Usage workspace
+Linux is the primary platform. This document describes reproducible checks and
+their scope; a passing result belongs to a particular revision and environment.
+Commands and source-file links refer to a source checkout. The Windows runtime
+ZIP includes documentation but not the source or test drivers.
 
-`usagecheck` exercises the same asynchronous service used by the native UI.
-`tests/usage.py` is registered with CTest on Linux and Windows. It compares
-subtree unions with an independent Python oracle and covers cross-branch
-duplicates, prefix-adjacent paths, unknown/changed content, missing versions,
-rejections, zero-byte files, metadata-only entries, destination provenance,
-offline operation, bounded chart aggregation and unsafe cache files.
+## CI and recorded results
 
-`tests/gui_usage.py` runs under Xvfb and exercises tab isolation, non-selecting
-hover, tree expansion, parent focus, rings/treemap, chart depth, resizing,
-column choices, help, reveal and persisted session preferences. It is included
-in the primary Linux regression runner.
+The [Build and test workflow](.github/workflows/build.yml) builds full GUI/media
+and core-only configurations on Ubuntu 24.04 and Windows Server 2022 / MSYS2
+UCRT64. It runs behavior tests, native GUI checks and Windows package checks.
+The [Windows publication workflow](.github/workflows/windows-download.yml)
+publishes the rolling download only after both platform jobs succeed for `main`.
 
-`tests/gui_usage_rings.py` checks native rendered pixels using a catalog with
-7.85 TiB of logical content and leaves as small as one byte. It checks flat
-sector fills, joined rings and distinct sibling/level shades at depths 1, 2, 3
-and 5, 100%/150% scaling and dark/light themes. This catches degenerate-triangle
-rectangles and internal antialiasing seams without creating large payloads.
+On 2026-11-15, [run 43649937030](https://github.com/noderblade/CCurate/actions/runs/43649937030)
+was verified successful for commit `378f0773b7cfa4717f700c2e033b03a5c78cdd5e`,
+including both Linux and Windows jobs. This is a dated result, not a claim about
+later commits. Check [Actions](https://github.com/noderblade/CCurate/actions)
+for the revision being installed. Per-suite logs and Windows screenshots are
+retained as workflow artifacts according to GitHub's retention policy.
 
-The optional scale test creates only disposable catalog records and checks
-logical and unique totals for a duplicate-heavy dataset:
+## Run the Linux checks
 
-```sh
-python3 tests/usage_scale.py build/ccurate build/usagecheck /path/to/scratch 17000000
-```
+Install the build dependencies in [README.md](README.md#build-and-run).
+Native GUI checks also need Xvfb, xdotool, Python Pillow/fontTools, DejaVu/URW
+fonts and a working Vulkan ICD, such as Mesa Lavapipe. Use an unprivileged account
+for permission-denied cases. Fixtures are disposable; never point scale tests
+at a real curation session.
 
-Use a scratch filesystem with ample capacity (roughly 1 KiB per file); no file
-payloads are created. It reports initial and saved-index navigation times,
-repeated in-process requests and cache size. Results depend on directory shape,
-duplicate distribution, hardware and catalog fragmentation. This optional test
-does not run on every CI build.
-
-The development run on 2026-11-13 passed with **17,000,000 file occurrences** in
-17,000 leaf directories and 1,000 SHA-512 groups spanning all directories. Each
-synthetic file was 512 KiB logically; no corresponding payload was read or
-created. The catalog occupied **11.243 GiB**. Initial analysis took **554.996 s**,
-the finished analysis cache occupied **4.016 MiB**, and peak RSS of the headless
-analysis driver was about **82.3 MiB**. Separate subsequent driver launches
-returned the leaf/root views in **20 ms / 61 ms**; repeated requests in one
-process were generally **1–2 ms**. These are backend timings on a warm filesystem
-cache, not GUI frame timings or guarantees for other catalog shapes. The compact
-cache size reflects this fixture's duplicate distribution.
-
-The Linux full/core CTest suites and the 21-suite regression runner passed,
-including native GUI tests. The analysis tests also passed AddressSanitizer and
-UBSan; LeakSanitizer was disabled because the execution sandbox cannot support
-its process inspection. GitHub Actions additionally validates native Windows.
-
-CCurate 0.1.0, including destination-copy removal and the Windows port.
-Linux remains the primary platform.
-
-## Destination copy removal
-
-The local Linux regression run passed all **19 suites**, including both full
-GUI/media and core-only configurations (eight CTest cases each), large-catalog
-stress, live scan, previews, desktop opening and ten native-window scripts.
-The removal and database-recovery suites also pass with AddressSanitizer and
-UndefinedBehaviorSanitizer. Leak detection was disabled because LeakSanitizer
-cannot run under this environment's process tracing; this is not a leak test.
-
-`tests/removal.py` contains 18 portable real-file cases: duplicate status and
-balance, recopy, preserved decisions/history, required confirmation, live-source
-and destination edits, archived-only versions, independent empty files, invalid
-paths, busy writers, offline refusal, staged recovery, naming collisions,
-post-unlink recovery and JSONL import/export recovery. Its symlink case runs on
-Linux; native Windows skips it when optional symlink privileges are unavailable.
-
-`tests/removal_faults.py` gates real rename/unlink calls in a disposable Linux
-process. Seven scenarios exercise hard kills before/after unlink, cancellation,
-source edits, a newly opened writer, staged destination edits and replacement of
-the original destination name. The application contains no test gates. SQLite
-authorizer tests additionally fail the intent, mapping and JSONL-export commits.
-
-`tests/gui_removal.py` exercises source-focus refusal, default Cancel, keyboard
-confirmation, mouse menu/tooltips/buttons, F9, F5 recopy, help and scrolling at
-400% scale. Confirmation, cleared statuses and updated remaining bytes are
-visually checked in a native Raven window.
-
-The portable removal suite is registered for both Windows build configurations;
-the Windows native-window smoke test also removes and recopies a fixture. The
-new Windows checks run in GitHub Actions. The local results above do not imply
-a native Windows result; check the workflow for the revision being installed.
-
-## Column resizing and legend update
-
-The full GUI/media and core-only Linux builds each pass all six CTest cases.
-Five native-window scripts also pass: `gui_columns.py`, `gui_scroll_sort.py`,
-`gui_actions.py`, `gui_activity.py` and `gui_fonts.py`. The new test covers all
-five dividers in both panes, sorting after resizing, visible-only double-click
-auto-fit, the last divider after horizontal scrolling, keyboard sizing, invalid
-widths, empty folders, reset, UI scaling and restored geometry after restart.
-The fitted table and updated directory-status legend were visually inspected.
-The shared GUI module is included in both platform builds. GitHub Actions runs
-the Linux regression set and the native Windows full/core, GUI and packaged
-runtime tests for each pushed revision.
-
-The statistics fixture closes SQLite connections explicitly as well as ending
-their transactions. A connection context alone leaves its handle open, causing
-Windows cleanup to fail with `WinError 32` in the two tests that modify the
-fixture database. Assertions and cleanup remain enabled on both platforms.
-
-## Lazy resume and large-catalog navigation (2026-11-09)
-
-`navigation_cache` exercises bounded first-page work before descendant aggregation,
-parent anchors, SQLite commit invalidation after decisions, distinct search/sort/
-history/filter keys, eventual recursive counters and statistics completing during
-repeated navigation. The fixture uses 12,000 descendants and a SQLite instruction
-budget so the first-page check does not rely only on wall-clock timing.
-
-`statistics` covers seven real-file scenarios: duplicate and independent empty
-files, verified copies, rejection/restoration of individual occurrences and whole
-groups, retained older versions, absent source paths, pending observations,
-UNSCANNED paths, incomplete traversal, corrupt destinations and an empty plan.
-Both full and core Linux builds include these CTest cases. The Windows CMake
-selection also includes the statistics cases.
-
-`tests/navigation_scale.py` additionally generated a disposable 17-million-file
-catalog for before/after timing. Measurements and limitations are recorded in
-[PREVIEW_NOTES.md](PREVIEW_NOTES.md). These are catalog records, not 17 million
-physical files or a scan of the user's source drive.
-
-The Linux regression set passed all 17 suites: both build configurations' CTests,
-stress, live scan, sorting, production preview suites, desktop opening and all
-eight native-window suites. The new lazy-refresh/navigation/statistics tests also passed with
-AddressSanitizer and UndefinedBehaviorSanitizer. Leak detection was disabled for
-that run because LeakSanitizer cannot operate under this execution environment's
-process tracing; this is not a leak-check result. The Ctrl+B panel was additionally
-opened and visually inspected in a native Raven window.
-
-
-## Build and core behavior
-
-The graphical/media build and the core-only build pass the 32 black-box
-integration cases in `tests/integration.py`. Tests use disposable source and
-destination directories and exercise real copying, SHA-512 verification,
-deduplication, retained ancestors, rejection/restoration, source changes,
-metadata-only entries, destination moves, recovery, non-UTF-8 filenames and
-JSONL reconstruction without the source.
+From the repository root:
 
 ```sh
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
-cmake --build build -j
-ctest --test-dir build --output-on-failure
+cmake --build build --parallel
+cmake --build build --parallel --target previewcheck jpegfixture preview_policy_probe workercheck sortcheck activitycheck hashcheck databasecheck navigationcheck refreshcheck inspectioncheck usagecheck
 
-cmake -S . -B build-core -DCCURATE_GUI=OFF -DCCURATE_MEDIA=OFF
-cmake --build build-core -j
-ctest --test-dir build-core --output-on-failure
+cmake -S . -B build-core -DCMAKE_BUILD_TYPE=Release -DCCURATE_GUI=OFF -DCCURATE_MEDIA=OFF
+cmake --build build-core --parallel
+
+python3 tests/run_linux.py build build-core
 ```
 
-Both configurations create and reopen `.ccurate` sessions. The core-only build
-excludes Raven, Fontconfig, GIO and image/PDF/audio/video decoder dependencies.
-Permission-denied cases require an unprivileged test process.
+The explicit target list includes optional drivers that are not part of a normal
+application build. [`tests/run_linux.py`](tests/run_linux.py)
+is the executable list of primary suites and writes diagnostics to
+`test-results/`. It runs CTest for both configurations, followed by stress,
+preview, desktop-launch and native-window tests. GUI scripts manage their own
+Xvfb servers and fixtures.
 
-## Lazy session resume
-
-`tests/lazy_refresh.py` and `refreshcheck` cover new versus existing/incomplete
-catalog startup, unchanged visits with zero hashed bytes and no database-version
-change, direct-child scope, same-size/mtime-preserving edits, hidden files,
-subtree disappearance/reappearance, symlink replacement, failed listings,
-cancellation during a large hash, retained history, pending-group invalidation,
-writer deferral, independent empty files and complete-copy discovery of new
-unvisited descendants. They are part of Linux full/core CTest.
-
-`tests/gui_lazy_refresh.py` opens the native Raven window on a scanned fixture,
-checks that startup does not traverse or hash unvisited folders, then verifies
-updates when entering one folder. F5 must preempt a 64 GiB sparse-file hash and
-copy a different selected file. An explicit full-hash scan must still work.
-Reopening an incomplete inventory must also avoid an automatic tree scan.
-`tests/run_linux.py` includes this suite alongside the existing GUI regressions.
-These are disposable Linux fixtures; they do not substitute for native Windows
-execution or a full live 8 TB drive test. This uncommitted preview has not run CI.
-
-## Empty files and changing sources
-
-`tests/scan_regressions.py` contributes eight cases to both platform integration
-suites: independent empty copies, collisions and metadata versions, move/audit
-and offline reconstruction, interrupted publication, schema-1 session and JSONL
-upgrades, writable-handle deferral with retained history, and continuing past a
-new busy file. Tests also confirm read-only handles do not block scanning, the
-unsecured filter includes deferred files, retries work, and warnings reach disk.
-
-The Linux `changing_hash` CTest runs `tests/hash_driver.c` with a test-only link
-wrapper. It grows, truncates or rewrites a real fixture immediately after the
-first read, or returns EAGAIN, and requires UNSCANNED after one read with no
-published digest. An unchanged fixture must read exactly its initial size.
-This avoids timing races and exercises changes after writer discovery.
-
-## Large catalogs and background work
-
-`tests/stress.py` passes two synthetic one-million-entry catalogs (identical
-nonempty content and independent empty files) through paged
-listing, duplicate counts, history/unsecured/name filters, size sorting,
-selection anchors, query cancellation, storage metrics and saved preferences.
-The same suite scans 2,000 real small files plus a 1 GiB sparse file and checks
-that an unchanged rescan reuses hashes.
-
-`tests/live_scan.py` passes live enumeration, pending metadata, cancellation,
-copy refusal before hashing, restart, preservation of an earlier retained
-version and destination audit.
+For a narrower check after building:
 
 ```sh
-cmake --build build --target workercheck
+ctest --test-dir build --output-on-failure
+ctest --test-dir build-core --output-on-failure
+python3 tests/gui_usage.py build/ccurate
+python3 tests/gui_usage_rings.py build/ccurate
+```
+
+CTest registration is defined in [CMakeLists.txt](CMakeLists.txt),
+[cmake/Usage.cmake](cmake/Usage.cmake) and
+[cmake/Windows.cmake](cmake/Windows.cmake). Test selection differs by platform and
+build options; use `ctest --test-dir build -N` to list the configured cases.
+
+## Core and service coverage
+
+| Area | Fixtures | What they check |
+| --- | --- | --- |
+| Curation and portable history | `integration.py`, `scan_regressions.py` | Real copying and independent SHA-512 verification, duplicate reuse, independent empty files, decisions, retained ancestors/versions, moves, metadata, non-UTF-8 names, schema upgrades and offline JSONL reconstruction |
+| Interrupted sessions | `database_recovery.py`, `database_driver.c` | Hard kills, WAL recovery, concurrent instances, external writers, failed commits and interrupted queries |
+| Changing source data | `hash_driver.c`, `scan_regressions.py` | Growth, truncation, rewrites and EAGAIN after a read; bounded reads, writable-handle deferral, unchanged/read-only handles and preserved history |
+| Lazy refresh | `lazy_refresh.py`, `refresh_driver.c` | Existing/incomplete session resume, unchanged visits without data reads or catalog rewrites, direct-child scope, new/changed/absent paths, failed enumeration, cancellation and selected-subtree discovery before copy |
+| Navigation | `navigation_cache.py`, `navigation_driver.c` | First-page publication before recursive counts, parent anchors, bounded caches, invalidation, filter/sort separation and statistics independent of navigation |
+| Space estimates | `statistics.py` | Unique/repeated/empty content, rejections, retained old versions, missing sources, pending/UNSCANNED entries, incomplete traversal and corrupt destinations |
+| Destination inspection | `destination_inspection.py`, `inspection_driver.c` | Actual destination metadata, indexed source provenance, independent empty files, history and unindexed entries |
+| Removal | `removal.py`, `removal_faults.py` | Confirmation, fresh source/destination verification, refusal of unsafe or archived-only removal, recopy, independent empty files, staging collisions, hard kills and failed commits |
+| Disk Usage | `usage.py`, `usage_driver.c` | Subtree unions against an independent Python oracle, cross-branch duplicates, prefix-adjacent paths, unknown content, rejection scopes, offline use, bounded chart aggregation and unsafe cache files |
+
+The changing-hash driver injects changes immediately after the first read through
+a test-only link wrapper, avoiding timing races. Linux removal fault tests gate
+real rename/unlink calls using a disposable preload helper; the application has
+no test gates. Some Windows filesystem fixtures are conditional on host support,
+such as symlink privileges or NTFS case-sensitive-directory configuration.
+
+## Large catalogs, live listings and sorting
+
+`stress.py` exercises two synthetic million-entry catalogs: repeated nonempty
+content and independent empty files. It covers paging, filters, ordering,
+selection anchors, cancellation, storage metrics and saved preferences, then
+scans real small files and a sparse file to check unchanged-hash reuse.
+`live_scan.py` checks committed enumeration batches, pending metadata,
+cancellation/restart, retained old versions and audit. `sorting.py` checks all
+sort columns in both directions across destination, source and history views,
+including page boundaries, ties, directory grouping and pending observations.
+
+```sh
 python3 tests/stress.py build/ccurate build/workercheck
 python3 tests/live_scan.py build/ccurate build/workercheck
-```
-
-These fixtures test behavior and bounded paging; they are not measurements of
-an 8 TB source drive or a guarantee of latency on another machine.
-
-`tests/sorting.py` exercises the real view service against 2,105 files per pane.
-All 36 combinations of six columns, two directions and three views (destination,
-live source and retained history) pass, including ordering across page boundaries,
-numeric values, duplicate/status groups, stable ties, directory grouping,
-selection anchors, filters and pending metadata overlays.
-
-```sh
-cmake --build build --target sortcheck
 python3 tests/sorting.py build/ccurate build/sortcheck
 ```
 
-## Native interface
+These tests validate behavior and bounded paging, not latency on an arbitrary
+source drive. The larger optional measurements are documented below.
 
-All seven real-window suites pass under Xvfb with Mesa software Vulkan. They
-were rerun for the Windows port, together with both core integration
-configurations, stress/live-scan/sorting and all production preview suites.
+## Native Linux interface
 
-| Suite | Coverage |
+| Script in `tests/` | Coverage |
 | --- | --- |
-| `gui_smoke.py` | Keyboard curation, scan/cancel, 50-400% scaling and session persistence |
-| `gui_actions.py` | Live listings, mouse menus, contextual help, splitters, four-value layout input and persistence |
-| `gui_activity.py` | Click-only selection, JPEG preview, log levels, resizing, ten themes and status legend |
-| `gui_fonts.py` | Font chooser, keyboard/mouse controls, TTF/OTF/TTC faces, filtering, cancellation and persistence |
-| `gui_navigation_open.py` | Parent focus and scroll restoration across pages; double-click, keyboard and menu application opening |
-| `gui_scroll_sort.py` | Clickable sort headers, keyboard sorting, per-pane persistence, global list dragging across 2,205 rows, horizontal tables and preview/details/log scrollbars |
-| `gui_columns.py` | All five dividers in both panes, viewport-only auto-fit, sorting after resize, horizontal scrolling, keyboard sizing/fit/reset, empty folders and persistence across scaling/restart |
-| `gui_startup.py` | No-argument folder selection without typing paths, keyboard and mouse browsing, hidden roots, cancellation, equal-root rejection, session resume, offline browsing and session-open errors |
+| `gui_smoke.py` | Keyboard curation, scan/cancel, scaling and session persistence |
+| `gui_actions.py` | Live listings, mouse menus, contextual help and splitters |
+| `gui_activity.py` | Click-only selection, JPEG preview, log levels, themes and status legend |
+| `gui_fonts.py` | Installed-font chooser, TTF/OTF/TTC faces, filtering and persistence |
+| `gui_navigation_open.py` | Parent focus/scroll restoration and default-app opening |
+| `gui_scroll_sort.py` | Sort headers, global list scrolling, horizontal tables and text scrollbars |
+| `gui_columns.py` | Dividers, visible-row auto-fit, keyboard sizing/reset and saved geometry |
+| `gui_startup.py` | Graphical root selection, cancellation, root validation, offline browsing and session-open errors |
+| `gui_lazy_refresh.py` | Baseline startup, visited-folder updates, copy preemption and explicit full rehash |
+| `gui_removal.py` | Default Cancel, confirmation, focus restrictions, menus, F9, recopy and high-scale scrolling |
+| `gui_inspection.py` | Focused-pane preview bytes and details, including identical names with different source/destination contents |
+| `gui_usage.py` | Workspace isolation, tree/chart navigation, resizing, scope, columns and persisted state |
+| `gui_usage_rings.py` | Rendered sector fills and joined rings at depths 1, 2, 3 and 5, different scales and dark/light themes |
 
-Install Xvfb, xdotool, Python Pillow/fontTools, DejaVu/URW fonts and a working
-Vulkan ICD for these checks. Each script manages its own disposable X server and fixture directories.
+The ring fixture represents 7.85 TiB logically, including one-byte leaves,
+without allocating that payload. It checks for degenerate-triangle rectangles
+and internal antialiasing seams. The live-listing GUI fixture pauses enumeration
+after committed batches so cancellation does not depend on directory speed.
 
-```sh
-python3 tests/gui_smoke.py build/ccurate
-python3 tests/gui_actions.py build/ccurate
-python3 tests/gui_activity.py build/ccurate
-python3 tests/gui_fonts.py build/ccurate
-python3 tests/gui_navigation_open.py build/ccurate
-python3 tests/gui_scroll_sort.py build/ccurate
-python3 tests/gui_columns.py build/ccurate
-python3 tests/gui_startup.py build/ccurate
-```
+`desktop_open.py` uses isolated GIO associations pointing to a recording helper.
+It checks exact filenames, shell punctuation, non-UTF-8 bytes, missing files,
+symlinks, FIFOs and path escapes. It does not change the user's associations or
+validate a particular production viewer/editor.
 
-The live-listing/cancellation GUI test compiles `tests/enumeration_gate.c` as a
-temporary preload fixture. It pauses source metadata enumeration after committed
-inventory batches until the test cancels through the UI, avoiding assumptions
-about directory speed. The production application and build are unchanged.
-
-
-The startup suite checks that cancelling or rejecting equal roots creates no
-session and that starting with chosen roots reaches the workspace and completes
-the background scan. It also exercises Raven shutdown/reinitialization between
-the chooser and workspace, including reopening the chooser after a lock error.
-
-`tests/desktop_open.py` also passes against actual GIO default associations
-pointing to an isolated recording application. It verifies exact filenames,
-including quotes, shell punctuation and non-UTF-8 bytes, plus missing-file,
-symlink, FIFO and path-escape failures. It does not change the user's desktop
-associations or test a particular production editor.
-
-## Preview workers
-
-The real preview subprocess passes all 20 `preview_process.py` cases, including
-EXIF orientations, several image formats, corrupt input and cancellation.
-`preview_large_jpeg.py` passes baseline 96 MP and 200 MP images, progressive
-96 MP, EXIF rotations/mirroring and CMYK colors. A progressive 192 MP fixture is
-refused with the explicit coefficient-budget diagnostic. Input SHA-512 values
-remain unchanged.
-
-The four `preview_limits.py` cases pass scratch/memfd writes with read-only
-source input, oversized scratch diagnostics, inherited hard-limit failure and
-retained decoder error details.
+## Preview workers and optional diagnostics
 
 ```sh
-cmake --build build --target previewcheck jpegfixture preview_policy_probe
 python3 tests/preview_process.py build/previewcheck
 python3 tests/preview_large_jpeg.py build/previewcheck build/jpegfixture
 python3 tests/preview_limits.py build/previewcheck build/libpreview_policy_probe.so
 python3 tests/desktop_open.py build/ccurate
 ```
 
-Additional optional fixtures are provided by `preview_smoke.py` (direct media
-formats), `preview_jpeg_safety.py` (malformed EXIF and truncated JPEGs, suitable
-for an ASan/UBSan-instrumented `previewcheck`) and `activity_test.py` (diagnostic
-logging). Instrumented direct-decoder tests run outside the production worker's
-address-space limit. These additional suites are not included in CTest.
+The subprocess fixtures cover image formats, EXIF orientation, corrupt inputs,
+cancellation, scratch/memfd writes, resource-limit failures and retained decoder
+diagnostics. Large-JPEG cases include baseline 96 MP/200 MP images, progressive
+96 MP, CMYK, rotation/mirroring and explicit refusal of an over-budget progressive
+fixture. Source SHA-512 values must remain unchanged.
 
-## Environment and limits
+Optional scripts outside the primary runner include `preview_smoke.py`,
+`preview_jpeg_safety.py` and `activity_test.py`. They exercise direct decoding,
+malformed EXIF/truncated JPEGs and diagnostic logging. Consult each script's
+arguments before running it. Instrumented direct-decoder tests run outside the
+production preview worker's address-space limit.
 
-Validation used Debian 13, GCC 14, libjpeg-turbo 2.1.5, GdkPixbuf 2.42.12,
-GIO 2.84.4, X11/Xvfb and Mesa software Vulkan. Native Wayland, a root account's
-real desktop, a complete 8 TB/ZFS drive and real user-selected viewers were not
-exercised here. The external-launch privilege-drop branch has not been tested
-in a root desktop session. Error injection does not replace power-loss testing
-on the target storage hardware.
+A separate core build can enable AddressSanitizer and UndefinedBehaviorSanitizer:
 
-The bundled Raven source is unchanged. Application implementation uses separately
-compiled `.c` files and self-contained `.h` interfaces; no implementation
-fragments are included.
+```sh
+cmake -S . -B build-asan -DCCURATE_GUI=OFF -DCCURATE_MEDIA=OFF -DCCURATE_SANITIZE=ON
+cmake --build build-asan --parallel
+ctest --test-dir build-asan --output-on-failure
+```
 
+The removal preload fault cases are excluded from this configuration.
+If process-inspection restrictions prevent LeakSanitizer from running,
+`ASAN_OPTIONS=detect_leaks=0` disables leak detection; record that limitation
+rather than reporting a leak-check pass. A normal CI pass does not imply a
+sanitizer run.
 
-## Linux compatibility gate for the Windows port
+## Native Windows and packaged-runtime checks
 
-The baseline is commit `4babb053bb66063e97d27a05b4d6e89668b705ff`. After the
-platform selections were added, full and core Linux executables were rebuilt
-with the same compiler, configuration and dependencies as that baseline. Both
-were **byte-for-byte identical**, with these SHA-256 values:
+Use the [Windows build guide](docs/WINDOWS_PORT.md#build-from-source). The workflow
+runs full/core CTest and native-window scripts, then repeats applicable integration,
+preview, startup and GUI checks against the packaged application with only Windows
+system directories on its `PATH`.
 
-| Configuration | SHA-256 |
-| --- | --- |
-| GUI + media | `77f43402f74fbb2f825916d10fe6601f7f42f42afc16129286291eba1a9163a2` |
-| Core only | `471f64bdff5ff169047ecb4e6254e4942040f34c6df5c40815cccebf733cba85` |
+- `windows_integration.py` covers Unicode/emoji and long names, case collisions,
+  hidden/system attributes, root/path validation, locking, metadata, stream/junction
+  refusal, curation, recovery, audit and foreign POSIX historical names.
+- `windows_previews.py` drives the real restricted subprocess with image, large
+  JPEG, text/binary, archive, PDF, cancellation and worker-refusal fixtures.
+- `windows_gui.py` exercises native root selection, curation, removal/recopy,
+  history, help, Disk Usage and session persistence in real Win32 windows.
+- `windows_software_rendering.py` checks automatic/forced CPU rendering, a visible
+  first frame, the software launcher and missing-driver diagnostics. `graphicscheck`
+  covers repeated device initialization/render/shutdown. No system ICD registration
+  or software-driver directory on `PATH` is required.
+- `windows_startup.py` checks redirected/detached launches, debug logs, exceptions,
+  worker protocols and launcher diagnosis of missing DLLs. The deliberately broken
+  fixture does not modify the built package; the diagnostic probe is not shipped.
 
-The local regression suites passed again with software Vulkan explicitly selected.
-GitHub Actions also passed the complete Linux suite on Ubuntu 24.04. Initial
-runner setup failures involved missing font fixtures and an older Pillow API;
-those were test-environment issues, corrected without changing application
-behavior. The comparison is specific to the recorded toolchain/build settings,
-not a promise about every compiler, driver or filesystem. Vendored Raven is
-unchanged. No Windows source file is compiled into the Linux targets.
+This validates more than compilation, but the hosted Windows Server runner is
+not a substitute for every consumer Windows installation or VM driver setup.
 
-## Native Windows checks
+## Dated scale measurements
 
-Native Windows validation passed on Windows Server 2022 with the MSYS2 UCRT64
-toolchain in [Actions run 42322961160](https://github.com/noderblade/CCurate/actions/runs/42322961160),
-commit `1664887b73229315d4f7561e261f728cc6f67dc1`. Both the full and core builds
-passed all 18 integration cases, the full build passed all seven restricted
-preview cases, and the real Win32/Vulkan GUI suite passed. The packaged runtime
-then passed the same 18 integration cases, seven preview cases and GUI suite with
-the development toolchain removed from the application's `PATH`. The NTFS
-case-sensitive-directory and junction fixtures ran successfully on this host.
+These are historical development measurements on synthetic catalogs, not fresh
+results for every commit. Neither fixture creates or hashes 17 million physical
+files. Use a separate scratch directory with ample capacity, approximately
+1 KiB per cataloged file plus temporary files; results depend on hardware, cache
+warmth, directory shape and duplicate distribution.
 
-`tests/windows_integration.py` uses real disposable NTFS directories and the
-native executable. Its platform-specific cases cover binary bytes and SHA-512, deduplication,
-Unicode/emoji names, hidden/system attributes, long paths, case collisions,
-traversal refusal, invalid root pairs, session locking, changed source versions,
-review/reject/restore, complete directories, target moves, publication recovery,
-JSONL rebuild, foreign POSIX historical names, metadata, named-stream refusal,
-junctions and audit corruption.
-Several related assertions share a test case. A case-sensitive-directory refusal
-fixture runs when the host permits enabling that NTFS flag; otherwise it is
-reported as skipped.
+```sh
+python3 tests/navigation_scale.py build/ccurate build/navigationcheck /path/to/navigation-scratch 17000000
+python3 tests/usage_scale.py build/ccurate build/usagecheck /path/to/usage-scratch 17000000
+```
 
-`tests/windows_previews.py` drives the real restricted subprocess through seven
-cases: text/binary, PNG/JPEG, a 96 MP JPEG, ZIP members, PDF, cancellation and
-refusal of an unrestricted worker. Fixture SHA-512 values must remain unchanged.
-`tests/windows_gui.py` opens real Win32/Vulkan windows, exercises the native folder
-picker and cancellation, then copies with F5, marks reviewed, opens help/history,
-saves the session and audits the result. Screenshots and diagnostics are retained.
+**Navigation / statistics, 2026-11-09.** The fixture held 17,000,000 file records
+under eight directories, each with a `deep` child. All files shared one nonempty
+hash and a logical size of 4,096 bytes. Before deferred counters/page caching,
+the first root listing exceeded the 180-second test wait. After the change,
+initial root responses took 3.2–4.3 ms across two runs and parent returns
+1.1–2.2 ms. The statistics pass took about 56.5 s and reported 69,632,000,000
+logical bytes and 4,096 deduplicated bytes. These are service timings excluding
+render scheduling. First-time sorting/filtering of millions of direct children
+can still be expensive; these results do not make every query constant-time.
 
-The packaging check runs the complete integration, restricted preview and GUI
-scripts against the staged runtime. Core and preview checks have only Windows
-system directories on `PATH`, including the GUI checks. The application-local
-software Vulkan driver is loaded directly, without registry registration or a
-driver directory on PATH. This is
-stronger than link success, but still runs on the CI host rather than a fresh
-consumer Windows installation. See [the Windows guide](docs/WINDOWS_PORT.md)
-for unsupported filesystem features and preview isolation differences.
+**Disk Usage, 2026-11-13.** The fixture held 17,000,000 occurrences in 17,000 leaf
+directories, with 1,000 SHA-512 groups spanning all directories. Each file was
+512 KiB logically. The catalog occupied 11.243 GiB; initial analysis took
+554.996 s, its completed cache occupied 4.016 MiB and peak driver RSS was about
+82.3 MiB. Separate subsequent driver launches returned leaf/root views in
+20 ms / 61 ms on a warm filesystem cache; repeated requests in one process
+were generally 1–2 ms. The small cache reflects this particular distribution.
 
-`tests/windows_software_rendering.py` verifies automatic fallback on a runner
-without an installed ICD, explicit CPU mode, a visible/nonblank first frame,
-the clickable software launcher, and missing-driver diagnostics with CLI
-availability preserved. `graphicscheck` exercises four complete software-device
-creation/render/shutdown cycles to cover the folder-chooser/workspace lifecycle.
-The native and packaged tests retain screenshots and startup logs. Invalid
-driver-path overrides are supplied deliberately; direct driver loading must
-work independently of them, including on the elevated hosted runner.
+## Validation limits
 
-## Windows startup diagnostics
+The local Linux development environment used Debian 13, GCC 14, X11/Xvfb and
+Mesa software Vulkan; hosted Linux CI uses Ubuntu 24.04. The documented automated
+checks do not cover a complete live 8 TB/ZFS drive, native Wayland interaction,
+a root account's real desktop or every external viewer. The launcher's Linux
+privilege-drop path has not been validated in a real root desktop session.
+Fault injection does not replace power-loss testing on target storage hardware.
 
-`tests/windows_startup.py` exercises redirected console streams, ordinary and
-`--debug` invocation, application errors in persistent logs, unchanged binary
-worker protocols, a missing Vulkan driver, startup without standard handles,
-a deliberately raised exception, and both successful and missing-DLL launcher
-runs. The missing-DLL fixture contains only a copied executable and diagnostics
-scripts with development directories removed from PATH; it never modifies the
-built package. The native probe is a test executable and is not distributed.
-
-Full and core Windows CTest runs include this suite; GUI-specific cases are
-skipped in core builds. Packaging runs the applicable startup cases again against
-the runtime with MSYS2 absent from PATH. Existing Windows GUI and preview suites
-remain enabled. Linux does not compile or link the diagnostics implementation.
+Windows filesystem and isolation differences are listed in
+[docs/WINDOWS_PORT.md](docs/WINDOWS_PORT.md). The platform boundary and the
+build-time Raven geometry adaptations are described in
+[ARCHITECTURE.md](ARCHITECTURE.md). Passing either platform's suite does not
+establish that the other platform or every filesystem is regression-free.

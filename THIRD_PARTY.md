@@ -1,6 +1,6 @@
 # Third-party code
 
-Raven is included unmodified under `vendor/Raven`:
+Raven's source snapshot is preserved under `vendor/Raven`:
 
 - Repository: https://github.com/oscar-soirey/Raven
 - Revision: `ede33eb15f986766f063aadb109f3c379cd8f6ea`
@@ -9,6 +9,25 @@ Raven is included unmodified under `vendor/Raven`:
 
 Keep Raven's bundled dependency notices/licenses with its source. Its existing
 third-party assets and libraries retain their respective original terms.
+
+CCurate compiles build-directory copies of three Raven files with square-corner
+geometry adaptations. The original vendored files are unchanged; the adaptations
+are defined in [`cmake/RavenGeometry.cmake`](cmake/RavenGeometry.cmake) and described
+in [the architecture guide](ARCHITECTURE.md#raven-integration).
+
+Markdown under `vendor/Raven` belongs to that pinned upstream snapshot. Its API,
+binding, example and build documentation is useful when maintaining the
+dependency. Its roadmap, package-publishing instructions and historical test
+claims are not CCurate's roadmap, release process or support guarantees. Upstream
+websites and package registries may describe a newer revision. For CCurate's
+current behavior, use the root README and user guide; for its checks, use
+[TESTING.md](TESTING.md).
+
+Some upstream prose also lags the pinned implementation: `docs/WEB.md` and
+`docs/ARCHITECTURE.md` describe `raven_web` as a separate library, while Raven's
+CMake builds enabled web sources
+into `raven`. CCurate disables `RAVEN_BUILD_WEB` on both platforms. Consult the
+bundled headers and CMake files when an upstream guide conflicts with the code.
 
 The source repository does not vendor its system dependencies: OpenSSL, SQLite,
 libarchive, libmagic, Fontconfig, X11/Vulkan, libjpeg/libjpeg-turbo, GdkPixbuf, Poppler, Cairo/GLib/GIO, and FFmpeg.

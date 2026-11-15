@@ -14,18 +14,24 @@ authoritative transactional session while a batch is in progress.
 | `header` | Format and original root hint | `schema`, `hash_algorithm`, `generated_ns`, `source`, `source_b64` |
 | `object` | One physical copy per nonempty content hash | `sha512`, `size`, `destination`, `destination_b64`, `state`, `verified_ns` |
 | `entry` | Retained occurrence/version at an original path | `path`, `path_b64`, `kind`, `version`, `sha512` when regular, original metadata, per-entry `destination` for empty files |
-| `event` | Placement history | `id`, `time_ns`, `operation`, `from`, `from_b64`, `to`, `to_b64`, optional `sha512` |
+| `event` | Copy, move, removal and recovery history | `id`, `time_ns`, `operation`, `from`, `from_b64`, `to`, `to_b64`, optional `sha512` |
 
-A nonempty regular-file `entry` hash resolves through an `object` to a path relative to the archive
-root. Several entries may resolve to one object. Paths are relative, without
-leading `/`, `..`, or embedded NUL. The empty entry path represents the original
-root. The header's `source` is an absolute historical hint, not a required mount.
+A nonempty regular-file `entry` hash resolves through an `object`, when a mapping
+exists, to a path relative to the archive root. Several entries may resolve to one
+object. Removing a destination copy preserves the retained entries but removes
+their object mapping: the historical paths still exist, with unavailable content.
+An importer or browser must not treat a retained entry alone as proof of secured
+bytes. Paths are relative, without leading `/`, `..`, or embedded NUL. The empty
+entry path represents the original root. The header's `source` is an absolute
+historical hint, not a required mount.
 
 Empty regular-file entries (`kind="file"`, `size=0`) have their own `destination`,
 `destination_b64` and `destination_state`. Their SHA-512 remains the true empty
 content digest for integrity verification, but it is never a grouping key and
 has no `object` record. A retained empty entry resolves directly to its per-entry
-destination. Several metadata versions of the same path can share that location.
+destination when that mapping exists. Removal can leave a retained empty entry
+without a destination. Several metadata versions of the same path can share one
+location.
 
 The corresponding `_b64` field is authoritative for every path or symlink text.
 It preserves arbitrary POSIX filename bytes, including non-UTF-8 names. The
@@ -69,7 +75,7 @@ audit rehashes actual destination bytes. Import deliberately assigns `unchecked`
 regardless of the last exported status. `verified_ns` refers to the last actual
 verification, not continuous monitoring.
 
-Events describe physical copy/reuse, destination move, and recovered locations.
+Events describe physical copy/reuse, destination move/removal, and recovered locations.
 They can mention a historical source name whose occurrence was later rejected.
 Events are provenance, not instructions to create virtual tree nodes. Build the
 virtual tree from `entry` records and resolve bytes through `object` records.
@@ -82,7 +88,9 @@ review markers, pending operations or UI state; those belong to `catalog.sqlite`
 
 `PRAGMA user_version=2`. The catalog stores `settings`, `entries`, `versions`,
 `rejected_retention`, `objects`, `empty_copies`, `operations`, `events`, `hash_groups`,
-`scan_queue` and `discoveries`. Indexes support paged listing, content lookups and
+`scan_queue` and `discoveries`. Disk Usage initialization also creates
+`usage_clock`, `usage_dirty_dirs` and `usage_dirty_hashes` for revision and
+invalidation tracking. Indexes support paged listing, content lookups and
 retained-history queries. The application checks the schema version when opening
 a session and refuses one newer than it supports.
 
@@ -91,7 +99,9 @@ For a regular file, the write sequence is:
 1. Validate the observed source version and record a durable copy intent.
 2. Write a unique temporary file in the destination directory, hashing the source.
 3. Confirm the source stayed unchanged; fsync and independently hash the copy.
-4. Publish with `renameat2(RENAME_NOREPLACE)` and fsync the directory.
+4. Publish without replacing an existing file. Linux uses
+   `renameat2(RENAME_NOREPLACE)` and a directory fsync; Windows uses its native
+   no-replace adapter with the durability limits noted above.
 5. Commit the object mapping and all non-rejected occurrences in SQLite; for an
    empty file, commit only that version and its `empty_copies` mapping.
 6. Export JSONL at the end of the batch.
@@ -99,13 +109,23 @@ For a regular file, the write sequence is:
 Recovery validates any published content before completing an interrupted intent.
 An existing unrelated destination is never silently overwritten. Cancellation
 keeps already committed copies and does not mean the whole batch was rolled back.
-The application uses one writer job at a time and a separate GUI read connection.
+Scan/copy/move/removal jobs serialize their writes. Background services use
+separate catalog connections for listings, statistics and analysis; the UI does
+not run these queries while drawing.
+
+Destination removal records an intent before staging the indexed file beside
+its original name. After verification and unlink, it detaches the mapping,
+records an event and schedules JSONL publication. Recovery restores staged
+bytes when possible rather than continuing deletion. Retained entry metadata
+and review decisions survive removal. See
+[the removal workflow](USER_GUIDE.md#remove-destination-copy) for prerequisites
+and recovery limits.
 
 ## Inventory and query caches
 
 `hash_groups` is a rebuildable duplicate-count cache. A trigger updates it when
 the current version, source presence or scan error changes. Only nonempty,
-error-free current files participate. `scan_queue` is a disposable
+error-free, verified current files participate. `scan_queue` is a disposable
 on-disk work plan created for a scan and removed on completion or cancellation.
 A subsequent scan rebuilds the plan and reuses hashes of completed, unchanged files.
 Neither table adds unretained entries to the portable archive.
@@ -122,9 +142,17 @@ new observation was available. Its retained history is not discarded. Hashing
 reads at most the initial size and checks metadata after each 1 MiB chunk.
 
 Successful verification removes an observation; cancellation leaves it for the
-next scan. Pending entries cannot be copied or marked secured by the copy path.
+next scan. The copy operation must verify pending entries before copying or
+marking them secured.
 Observations are session inventory, not part of JSONL. Earlier retained versions
 continue to export while a changed live path awaits verification.
+
+Disk Usage stores directory aggregates and duplicate corrections in the separate
+`.ccurate/usage.sqlite` cache, with its own WAL/shared-memory files. It is
+rebuildable from the catalog and is not exported to JSONL. The small tracking
+tables in `catalog.sqlite` identify changes since its last complete generation.
+Use **Rebuild** in Disk Usage to recalculate it; this does not rescan or rehash
+source files. The cache is not a substitute for backing up the session catalog.
 
 ## Upgrading schema 1
 
@@ -161,6 +189,8 @@ The `settings` table stores these independent UI preferences:
 | `ui.filter` | Unsecured-only filter |
 | `ui.sort.left`, `ui.sort.right` | Sort column (0 name, 1 status/copies, 2 size, 3 modified, 4 created, 5 mode), plus 256 for descending |
 | `ui.date.left`, `ui.date.right` | Date column: 0 modified, 1 created |
+| `ui.columns.left`, `ui.columns.right` | Five logical-pixel column widths per file pane; zero uses the responsive default |
+| `ui.usage` | Multiline internal state: active tab, analysis options, column widths, splitters, paging, base64 paths and expanded directories |
 | `ui.scale` | Interface scale from 0.5 to 4.0 |
 | `ui.split.top`, `ui.split.bottom` | Destination and preview width proportions |
 | `ui.split.rows`, `ui.split.log` | Upper-row and activity-log height proportions |

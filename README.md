@@ -134,7 +134,10 @@ contains retained entries; it does not turn all unreviewed clutter into history.
    deduplication, duplicate bytes saved, empty files, unknown/unscanned files and
    additional data still to secure. Its scope is present, non-rejected regular
    files. The top bar shows **Unique**, **Saved** and **To secure**; `Unique*` marks
-   incomplete scan coverage. Filesystem compression, sparse allocation and metadata
+   incomplete scan coverage. **Unique + Saved accounts only for verified bytes**;
+   add the last observed unscanned bytes to reconcile the logical total. The final
+   deduplicated requirement remains unknown until those files are verified.
+   Filesystem compression, sparse allocation and metadata
    mean physical disk usage can differ from these logical-byte estimates.
 
 7. **Browse the past from the new drive.** Switch to the historical view, or
@@ -160,6 +163,8 @@ to open its default desktop application. Pane separators are draggable, UI scale
 ranges from 50% to 400%, and an installed monospace-font chooser avoids typing
 font names. Ten color schemes include Tango, Nord, Dracula, Gruvbox Dark,
 Catppuccin Mocha and Tokyo Night. Layout and preferences persist per session.
+Application-drawn controls use square corners; native operating-system dialogs
+and window decorations follow the system appearance.
 
 Every content pane has draggable vertical and horizontal scrollbars. File-list
 scrollbars span the entire directory, including entries on other pages. Click
@@ -174,8 +179,10 @@ Source lists appear before recursive folder counters finish. `counting...` is a
 temporary counter placeholder; it does not prevent navigation. Recently visited
 source/history pages use a bounded memory cache that is invalidated by catalog
 changes. Global statistics run on a separate database reader, so requesting a
-whole-drive estimate does not hold up browsing. Existing sessions need no schema
-conversion or forced rehash for these changes.
+whole-drive estimate does not hold up browsing. Reopening an existing session
+uses the saved inventory, with lazy checks of visited source folders. Use Ctrl+R
+to complete an interrupted whole-tree scan; see
+[scan completion](USER_GUIDE.md#completing-an-interrupted-or-incomplete-scan).
 
 ### Main controls
 
@@ -228,8 +235,9 @@ a separate process with resource limits; failures appear in the preview and log.
 **Building from source is the recommended installation method on Linux.**
 
 Requirements: Linux, a C11 compiler, CMake 3.20 or newer, pkg-config, OpenSSL,
-SQLite3 with JSON support, libarchive and libmagic. The graphical build also
-uses X11, Vulkan, Fontconfig, GIO 2.50+ and a working Vulkan driver. Media previews use
+SQLite3 with JSON SQL functions and `RETURNING` support, libarchive and libmagic.
+The graphical build also uses X11, Vulkan, Fontconfig, GIO 2.50+ and a working
+Vulkan driver. Media previews use
 libjpeg (libjpeg-turbo is supported), GdkPixbuf, Poppler GLib and FFmpeg's avformat, avcodec, avutil and swscale libraries.
 Development headers are required. Python 3 runs the integration tests.
 
@@ -349,10 +357,16 @@ directory to continue curation. See [archive format](FORMAT.md) and
 - [User guide](USER_GUIDE.md): controls, scan phases, fonts, logs, complete
   directories, live-source behavior, previews and recovery.
 - [Archive format](FORMAT.md): JSONL records, path encoding and session semantics.
-- [Validation](TESTING.md): executed tests, environments and untested scenarios.
+- [Validation](TESTING.md): reproducible checks, dated results and validation limits.
 - [Changelog](CHANGELOG.md): changes across releases.
 - [Source architecture](ARCHITECTURE.md): C modules, header interfaces and UI
   state/thread ownership.
 - [Third-party notices](THIRD_PARTY.md): bundled Raven revision and dependencies.
 - [Windows guide](docs/WINDOWS_PORT.md): native package, build automation,
   platform separation and documented differences.
+
+## License status
+
+A project-level license for CCurate's own code has not yet been specified in this
+repository. Raven and the other dependencies retain their respective licenses;
+see [third-party notices](THIRD_PARTY.md).
