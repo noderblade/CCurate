@@ -3,6 +3,7 @@
 #include "gui_browser.h"
 #include "gui_choices.h"
 #include "gui_columns.h"
+#include "gui_details.h"
 #include "gui_fonts.h"
 #include "gui_jobs.h"
 #include "gui_open.h"
@@ -45,6 +46,8 @@ static const char *help_text =
     "Ctrl+X              hex / format preview\n"
     "Ctrl+T              date column: modified / created\n"
     "Ctrl+V              next retained version in history\n"
+    "Ctrl+Shift+V        show / hide version changes\n"
+    "Ctrl+Shift+PgUp/PgDn pages of version changes\n"
     "/                   filter names in the active directory\n"
     "Ctrl+G              go to a relative directory path\n"
     "Ctrl+F3 / Ctrl+F6   sort by name / size\n"
@@ -72,7 +75,8 @@ static const char *help_text =
     "F9: refresh, scan, fullscan, audit, stats, balance, reconcile, export,\n"
     "history, filter, review, unreview, restore, hex, help, scale 200,\n"
     "log, logfilter, logfollow, themes, fonts, legend, open, sort, reverse,\n"
-    "columns, autofit, resetcolumns, remove, usage, curation.\n"
+    "columns, autofit, resetcolumns, remove, usage, curation,\n"
+    "versions, prevversions, nextversions.\n"
     "Disk Usage: logical sizes from the saved catalog, Rings / Treemap,\n"
     "subtree deduplication totals and current source occurrences. F1 in\n"
     "that workspace lists its keyboard shortcuts and metric definitions.\n"
@@ -80,6 +84,10 @@ static const char *help_text =
     "Drag a header divider to resize; double-click it to fit visible rows.\n"
     "Scrollbars: drag thumb or click track; Shift+wheel pans.\n"
     "Preview and details follow the active file pane (click or Tab).\n"
+    "Occurrences show each source path once. Historical content only\n"
+    "means the current record has different or unknown content.\n"
+    "Version history compares stored metadata and SHA-512 hashes.\n"
+    "mtime / ctime changes do not imply different file contents.\n"
     "Destination inspection reads its actual file and metadata, with\n"
     "indexed source links. F3 / Ctrl+D keep that pane's context.\n"
     "F3 again or Esc returns to that file pane.\n"
@@ -200,6 +208,8 @@ void gui_remove_prompt(Gui *ui)
 
 void gui_command(Gui *ui, const char *s)
 {
+    if (gui_details_command(ui, s))
+        return;
     if (gui_usage_command(ui, s))
         return;
     if (!strncmp(s, "scale ", 6)) {

@@ -6,4 +6,5 @@
  * Does not hash content, follow symlinks or change the catalog. Caller owns text. */
 char *target_details_page(Catalog *c, const char *path, int page);
 
+char *target_details_view(Catalog *c, const char *path, int page, DetailHistory *history);
 #endif

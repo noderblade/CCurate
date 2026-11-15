@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """Real images prove that the active pane supplies bytes, even for identical paths."""
+from contextlib import closing
 from pathlib import Path
 from PIL import Image, ImageGrab
 import os
+import sqlite3
 import subprocess as sp
 import sys
 import tempfile
@@ -23,6 +25,18 @@ with tempfile.TemporaryDirectory(prefix='ccurate-gui-inspection-') as temporary:
     env = dict(os.environ, DISPLAY='127.0.0.1:200', RAVEN_WINDOW_SYSTEM='x11')
     for command in (('scan',), ('copy', 'origin/photo.png', 'curated')):
         sp.run([app, '--cli', source, destination, *command], env=env, check=True, capture_output=True)
+    # Synthetic metadata revisions exercise both history pages without changing
+    # the current content or triggering a lazy rehash when the file is selected.
+    with closing(sqlite3.connect(destination / '.ccurate/catalog.sqlite')) as db:
+        columns = [r[1] for r in db.execute('PRAGMA table_info(versions)') if r[1] != 'id']
+        eid, current = db.execute("SELECT id,current FROM entries WHERE path='origin/photo.png'").fetchone()
+        row = dict(zip(columns, db.execute('SELECT '+','.join(columns)+' FROM versions WHERE id=?', (current,)).fetchone()))
+        for i in range(20):
+            row['atime'] += 1000000
+            current = db.execute('INSERT INTO versions ('+','.join(columns)+') VALUES ('+
+                                 ','.join('?' for _ in columns)+')', [row[c] for c in columns]).lastrowid
+        db.execute('UPDATE entries SET current=? WHERE id=?', (current, eid))
+        db.commit()
     activity = destination / '.ccurate/activity.log'
     with (root / 'x.log').open('w') as xl, (root / 'app.log').open('w') as al:
         x = sp.Popen(['Xvfb', ':200', '-screen', '0', '1920x1200x24', '-nolisten', 'unix',
@@ -80,7 +94,24 @@ with tempfile.TemporaryDirectory(prefix='ccurate-gui-inspection-') as temporary:
             keys('ctrl+h'); until(lambda: preview((0, 255, 0)))
             keys('ctrl+h')
             go('curated'); until(lambda: preview((0, 0, 255))); snap('03-destination-provenance')
-            keys('F3', 'F3', 'BackSpace', 'End'); until(lambda: preview((0, 255, 0)))
+            def history(action, expected):
+                previous = activity.read_text().count('| view.versions |')
+                action()
+                until(lambda: activity.read_text().count('| view.versions |') > previous)
+                records = [line for line in activity.read_text().splitlines() if '| view.versions |' in line]
+                assert expected in records[-1], records[-1]
+                time.sleep(.25)
+                assert preview((0, 0, 255)), 'History controls changed preview context'
+
+            history(lambda: keys('ctrl+shift+v'), 'Destination history expanded; page 1')
+            snap('03a-destination-version-history')
+            history(lambda: keys('ctrl+shift+Next'), 'Destination history expanded; page 2')
+            snap('03b-destination-older-records')
+            history(lambda: keys('ctrl+shift+Prior'), 'Destination history expanded; page 1')
+            # Fixed default pane geometry, with the 1920x1200 window set above.
+            history(lambda: (xd('mousemove', 1040, 737), xd('click', 1)),
+                    'Destination history collapsed; page 1')
+            keys('Escape', 'BackSpace', 'End'); until(lambda: preview((0, 255, 0)))
             keys('Tab', 'End'); until(lambda: preview((255, 0, 0)))
             # Mouse focus on a destination header selects that pane, not a source row.
             xd('mousemove', 30, 168); xd('click', 1)
@@ -91,7 +122,7 @@ with tempfile.TemporaryDirectory(prefix='ccurate-gui-inspection-') as temporary:
             snap('04-destination-after-rapid-switching')
             keys('F10'); p.wait(timeout=20)
             assert p.returncode == 0
-            print('PASS source/destination bytes / same paths / hover / F3 / hex / details / history / navigation / mouse / stale results', flush=True)
+            print('PASS source/destination bytes / same paths / hover / F3 / hex / details / history pages / history button / navigation / mouse / stale results', flush=True)
         finally:
             if p and p.poll() is None:
                 p.kill(); p.wait(timeout=10)

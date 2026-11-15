@@ -3,13 +3,14 @@
 #include "gui_browser.h"
 #include "gui_choices.h"
 #include "gui_columns.h"
+#include "gui_details.h"
 #include "gui_fonts.h"
 #include "gui_layout.h"
 #include "gui_menu.h"
 #include "gui_scroll.h"
 #include "gui_state.h"
-#include "gui_theme.h"
 #include "gui_tabs.h"
+#include "gui_theme.h"
 #include "gui_usage_state.h"
 #include <math.h>
 #include <stdlib.h>
@@ -339,7 +340,8 @@ void gui_render(Gui *ui, RPainter *p, float w, float h)
                   ui->help ? "INFORMATION | arrows / PgUp / PgDn" : heading, GUI_COLOR(ui, muted),
                   ui->font_size - 1);
     GuiRect preview_body = {pv.x + 12, pv.y + 40, fmaxf(1, pv.w - 32), fmaxf(1, pv.h - 58)};
-    GuiRect details_body = {dt.x + 12, dt.y + 40, fmaxf(1, dt.w - 32), fmaxf(1, dt.h - 58)};
+    gui_details_paint(ui, p);
+    GuiRect details_body = gui_details_body(ui);
     if (ui->texture != R_INVALID_ID && ui->preview.width && ui->preview.height) {
         gui_text_panel_paint(ui, p, 2, preview_body, "");
         float scale =

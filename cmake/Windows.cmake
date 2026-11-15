@@ -24,7 +24,7 @@ set(CCURATE_WINDOWS_FILES
  src/platform/windows/preview_windows.c
 )
 add_executable(ccurate WIN32
- src/main.c src/util.c src/activity.c src/catalog.c src/operations.c src/remove_target.c src/preview.c src/view.c src/view_cache.c src/target_details.c
+ src/main.c src/util.c src/activity.c src/catalog.c src/content_details.c src/operations.c src/remove_target.c src/preview.c src/view.c src/view_cache.c src/target_details.c
  src/platform/windows/source_access_windows.c
  src/platform/windows/main_windows.c src/platform/windows/ccurate.rc
  ${CCURATE_WINDOWS_FILES}
@@ -60,7 +60,7 @@ if(CCURATE_GUI)
    src/font_catalog.c
    src/gui/gui.c src/gui/gui_startup.c src/gui/gui_controller.c src/gui/gui_browser.c
    src/gui/gui_navigation.c src/gui/gui_open.c src/gui/gui_jobs.c src/gui/gui_layout.c
-   src/gui/gui_scroll.c src/gui/gui_render.c src/gui/gui_input.c src/gui/gui_theme.c
+   src/gui/gui_scroll.c src/gui/gui_details.c src/gui/gui_render.c src/gui/gui_input.c src/gui/gui_theme.c
    src/gui/gui_columns.c
    src/gui/gui_activity.c src/gui/gui_choices.c src/gui/gui_fonts.c src/gui/gui_menu.c
  )
@@ -79,7 +79,7 @@ target_compile_options(diagnosticscheck PRIVATE -Wall -Wextra -Wformat=2)
 target_link_libraries(diagnosticscheck PRIVATE shell32 user32)
 enable_testing()
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
-add_executable(databasecheck tests/database_driver.c src/catalog.c src/util.c src/activity.c
+add_executable(databasecheck tests/database_driver.c src/catalog.c src/content_details.c src/util.c src/activity.c
  src/operations.c src/remove_target.c src/platform/windows/source_access_windows.c
  src/platform/windows/fs_windows.c src/platform/windows/metadata_windows.c)
 target_include_directories(databasecheck PRIVATE include)
@@ -118,7 +118,7 @@ add_test(NAME disk_usage COMMAND ${Python3_EXECUTABLE}
 add_test(NAME statistics COMMAND ${Python3_EXECUTABLE}
  ${CMAKE_CURRENT_SOURCE_DIR}/tests/statistics.py $<TARGET_FILE:ccurate>)
 
-add_executable(inspectioncheck tests/inspection_driver.c src/catalog.c src/util.c src/activity.c
+add_executable(inspectioncheck tests/inspection_driver.c src/catalog.c src/content_details.c src/util.c src/activity.c
  src/operations.c src/remove_target.c src/view.c src/view_cache.c src/target_details.c
  src/platform/windows/source_access_windows.c src/platform/windows/fs_windows.c
  src/platform/windows/metadata_windows.c)
@@ -129,3 +129,6 @@ target_compile_options(inspectioncheck PRIVATE -Wall -Wextra -Wformat=2)
 target_link_libraries(inspectioncheck PRIVATE OpenSSL::Crypto PkgConfig::SQLITE Threads::Threads bcrypt advapi32)
 add_test(NAME destination_inspection COMMAND ${Python3_EXECUTABLE}
  ${CMAKE_CURRENT_SOURCE_DIR}/tests/destination_inspection.py $<TARGET_FILE:ccurate> $<TARGET_FILE:inspectioncheck>)
+
+add_test(NAME content_history COMMAND ${Python3_EXECUTABLE}
+ ${CMAKE_CURRENT_SOURCE_DIR}/tests/content_history.py $<TARGET_FILE:ccurate> $<TARGET_FILE:inspectioncheck>)

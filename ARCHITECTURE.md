@@ -84,6 +84,8 @@ results; they do not start synchronous scans or decode files while drawing.
 | `src/desktop_open.c` | Asynchronous GIO launcher subprocess, desktop-user privilege drop and result pipe |
 | `src/view.c` | Independent view/statistics readers, saved preferences and storage metrics |
 | `src/view_cache.c` / `include/view_cache.h` | Worker-owned source/history page cache with SQLite commit invalidation |
+| `src/content_details.c` / `include/content_details.h` | Shared read-only occurrence grouping and paged per-path metadata/content comparisons |
+| `src/gui/gui_details.c` / `src/gui/gui_details.h` | Version-history controls, shortcuts and scroll positioning in Details |
 | `src/target_details.c` / `include/target_details.h` | Destination metadata, indexed provenance and inspection without a source scan |
 | `src/activity.c` | Bounded recent log, asynchronous file writer and log recovery |
 | `src/font_catalog.c` | Fontconfig discovery and asynchronous font-file reads |
@@ -266,3 +268,20 @@ diagnostics to a per-launch log and the original console/redirected stream. CLI
 stdout is preserved; restricted workers bypass this service. Windows-only GUI
 hooks record initialization and the first frame. The independent packaged
 PowerShell/CMD launcher diagnoses loader failures that occur before C entry.
+
+## Occurrence and version presentation
+
+Source and destination inspection share a grouped occurrence query. It groups
+historical version matches by entry ID before paging 256 source paths, using the
+existing `(hash,eid)` index and one lookahead row rather than counting an entire
+content group. Current matches, historical-only links and pending checks are labelled
+separately; empty files remain linked by individual destination/version mappings.
+
+The view worker compares adjacent observations for one source path, including
+unretained inventory records. It reads at most 17 version pairs per page (16 plus
+lookahead), with predecessor lookups through the entry/version index. A per-path
+count gives a bounded page number and collapsed history summary. No schema, scanner,
+retention policy, JSONL format or deduplication accounting changes are involved.
+History visibility/page state travels with asynchronous view requests/results, so
+obsolete selections cannot overwrite current details. Expanding history does not
+restart file preview decoding.

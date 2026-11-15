@@ -206,7 +206,8 @@ File lists use pages of 1000 entries. Ctrl+PgUp/PgDn changes pages; Home/End goe
 to the beginning/end of the full list. The vertical scrollbar spans the whole
 directory and loads the required page in the background. Marked selections survive
 page changes within the same directory. Filtering and sorting apply to the whole directory.
-Occurrence details use pages of 256 records, switched with Ctrl+Alt+PgUp/PgDn.
+Occurrence details use pages of 256 distinct source paths, switched with
+Ctrl+Alt+PgUp/PgDn. Repeated catalog observations of the same path occupy one row.
 
 Preview and Details follow the last focused file browser: **Destination** on the
 left, or **Source / History** on the right. Click a row or press **Tab** to switch;
@@ -229,6 +230,42 @@ payload); changes committed by scanning, copying, auditing and curation decision
 invalidate cached pages. The independent statistics worker can finish a whole-drive
 count while you keep navigating. During a data-writing operation, statistics wait
 until it finishes rather than holding a long-lived database snapshot.
+
+## Occurrences and version changes
+
+**Content occurrences** lists every recorded source path for the selected content
+once, including historical locations. `[historical content only]` means the path's
+current catalog record has different or unknown content. `[current content unverified]`
+marks pending or failed checks; presence, review and rejection labels describe the
+saved catalog, not a fresh filesystem check. `[OK]` means a retained matching record
+has a destination mapping currently marked verified; historical or absent labels
+still apply. These historical links do not increase current-source duplicate totals.
+
+Click **Version history** in Details, use **Preview > Show / hide version history**,
+or press **Ctrl+Shift+V** to expand the selected path's recorded changes. The `<` / `>`
+buttons and **Ctrl+Shift+PgUp/PgDn** page through 16 observations at a time, newest
+first. F9 also accepts `versions`, `prevversions` and `nextversions`. In destination
+context, this is the history of the original **Copied from** source path, when known.
+
+Each transition compares adjacent catalog records and shows only changed fields:
+permissions/type, size, owner/group, timestamps, device/inode, symlink target,
+extended attributes/ACLs and metadata errors. `mtime` is modification time; `ctime`
+is filesystem change time, **not creation time**; `btime` is birth time when available.
+Times include stored nanoseconds and the local UTC offset; precision still depends
+on the filesystem. `atime` is displayed when recorded values differ, but access-time
+changes alone do not trigger a new version.
+
+Equal recorded SHA-512 hashes are labelled **content unchanged** even when metadata
+changed. Different hashes are labelled **content changed**; missing hashes leave
+content comparison unavailable. Version IDs identify catalog records. The first
+observation does not establish when the file was created or exactly when it changed.
+History only contains states actually observed by CCurate.
+
+This panel reads the existing database without rescanning or changing it. It includes
+unretained inventory observations as well as retained records; retention and destination
+availability are shown separately. **Ctrl+H** still opens the retained historical tree,
+and **Ctrl+V** there cycles retained versions for preview. The JSONL archive carries
+retained records, so rebuilding solely from JSONL cannot recover unretained observations.
 
 ## Mouse, actions and pane layout
 
@@ -582,6 +619,8 @@ curation operations, whole-tree scans or **F9: export**, not on every folder vis
 | Ctrl+X | Switch format preview / hex |
 | Ctrl+T | Date column: modified / created, if available |
 | Ctrl+V | In history: cycle retained versions of the selected path |
+| Ctrl+Shift+V | Expand / collapse recorded version changes in Details |
+| Ctrl+Shift+PgUp / Ctrl+Shift+PgDn | Previous / next version-history page |
 | `/` | Filter names in the current directory; an empty value clears it |
 | Ctrl+G | Go to a directory relative to the pane root |
 | Ctrl+S / Ctrl+Shift+S | Choose any sort column / reverse direction |

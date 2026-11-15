@@ -1,57 +1,14 @@
 #include "target_details.h"
+#include "content_details.h"
 #include <errno.h>
 #include <fcntl.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
 
-static void source_occurrences(Catalog *c, Buf *b, const char *key, int empty, int page)
+char *target_details_view(Catalog *c, const char *path, int page, DetailHistory *history)
 {
-    /* One extra row determines whether a next page exists, without a global count.
-     * Empty files are linked by destination/version, never by the empty digest. */
-    const char *columns =
-        "SELECT e.path,v.id,e.present,e.reviewed,e.discarded,v.accepted,v.id=e.current ";
-    char *sql = fmt("%s%s", columns,
-                    empty ? "FROM empty_copies z JOIN versions v ON v.id=z.version "
-                            "JOIN entries e ON e.id=v.eid WHERE z.dest=? "
-                            "ORDER BY z.version LIMIT 257 OFFSET ?"
-                          : "FROM versions v JOIN entries e ON e.id=v.eid WHERE v.hash=? "
-                            "ORDER BY v.eid,v.id LIMIT 257 OFFSET ?");
-    sqlite3_stmt *q = sql_prepare(c, sql);
-    free(sql);
-    badd(b, "\n%s (page %d; Ctrl+Alt+PgUp/PgDn):\n",
-         empty ? "ORIGINAL EMPTY-FILE PATHS" : "SOURCE CONTENT OCCURRENCES", page + 1);
-    if (!q) {
-        badd(b, "Cannot read source links: %s\n", sqlite3_errmsg(c->db));
-        return;
-    }
-    bind_text(q, 1, key);
-    sqlite3_bind_int64(q, 2, (int64_t)page * 256);
-    int count = 0, step;
-    while ((step = sqlite3_step(q)) == SQLITE_ROW) {
-        if (++count > 256) {
-            badd(b, "More occurrences on the next page.\n");
-            break;
-        }
-        char *path = display_path((const char *)sqlite3_column_text(q, 0));
-        badd(b, "%s  (v%lld)%s%s%s%s%s\n", path, sqlite3_column_int64(q, 1),
-             sqlite3_column_int(q, 5) ? " [retained]" : " [not retained]",
-             sqlite3_column_int(q, 3) ? " [reviewed]" : "",
-             sqlite3_column_int(q, 4) ? " [rejected]" : "",
-             sqlite3_column_int(q, 2) ? "" : " [absent at last scan]",
-             sqlite3_column_int(q, 6) ? "" : " [older version]");
-        free(path);
-    }
-    if (step != SQLITE_ROW && step != SQLITE_DONE)
-        badd(b, "Cannot read source links: %s\n", sqlite3_errmsg(c->db));
-    else if (!count)
-        badd(b, "No occurrences on this page.\n");
-    sqlite3_finalize(q);
-    badd(b, "Source flags reflect the catalog snapshot; paths are relative to the source root.\n");
-}
-
-char *target_details_page(Catalog *c, const char *path, int page)
-{
+    history->available = history->more = 0;
     Buf b = {0};
     if (!valid_relative(path, 0))
         return xstrdup("Select an entry in the destination pane.");
@@ -101,7 +58,7 @@ char *target_details_page(Catalog *c, const char *path, int page)
         badd(&b, "\nSESSION DATA: CCurate's index, settings or activity log.\n");
         return b.s;
     }
-    sqlite3_stmt *q = sql_prepare(c, "SELECT o.hash,o.state,o.verified,o.size,e.path FROM objects o "
+    sqlite3_stmt *q = sql_prepare(c, "SELECT o.hash,o.state,o.verified,o.size,e.path,e.id FROM objects o "
                                    "LEFT JOIN entries e ON e.id=o.copied_from WHERE o.dest=?");
     if (!q)
         goto database_error;
@@ -110,7 +67,7 @@ char *target_details_page(Catalog *c, const char *path, int page)
     if (step == SQLITE_DONE) {
         sqlite3_finalize(q);
         empty = 1;
-        q = sql_prepare(c, "SELECT v.hash,z.state,z.verified,v.size,e.path FROM empty_copies z "
+        q = sql_prepare(c, "SELECT v.hash,z.state,z.verified,v.size,e.path,e.id FROM empty_copies z "
                            "JOIN versions v ON v.id=z.version JOIN entries e ON e.id=v.eid "
                            "WHERE z.dest=? ORDER BY z.version LIMIT 1");
         if (!q)
@@ -119,6 +76,7 @@ char *target_details_page(Catalog *c, const char *path, int page)
         step = sqlite3_step(q);
     }
     if (step == SQLITE_ROW) {
+        int64_t entry_id = sqlite3_column_int64(q, 5);
         char *hash = xstrdup((const char *)sqlite3_column_text(q, 0));
         char verified[40];
         date_text(sqlite3_column_int64(q, 2), verified);
@@ -136,7 +94,11 @@ char *target_details_page(Catalog *c, const char *path, int page)
         else
             badd(&b, "Indexed SHA-512:\n%.64s\n%s\n", hash, strlen(hash) > 64 ? hash + 64 : "");
         badd(&b, "Content is not rehashed by this view. Use Audit (Ctrl+A) to verify it.\n");
-        source_occurrences(c, &b, empty ? path : hash, empty, page);
+        content_occurrences(c, &b, empty ? NULL : hash, empty ? path : NULL, page);
+        if (entry_id)
+            content_version_history(c, &b, entry_id, 0, history);
+        else
+            badd(&b, "\nVersion history unavailable: original copied-from path is unknown.\n");
         free(hash);
     } else {
         sqlite3_finalize(q);
@@ -151,4 +113,10 @@ char *target_details_page(Catalog *c, const char *path, int page)
 database_error:
     badd(&b, "\nCannot read destination index: %s\n", sqlite3_errmsg(c->db));
     return b.s;
+}
+
+char *target_details_page(Catalog *c, const char *path, int page)
+{
+    DetailHistory history = {0};
+    return target_details_view(c, path, page, &history);
 }

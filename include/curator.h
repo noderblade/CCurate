@@ -89,11 +89,15 @@ enum {
     VIEW_CYCLE = 32
 };
 typedef struct {
+    int expanded, page, available, more;
+} DetailHistory;
+typedef struct {
     unsigned flags;
     char *path[2], *search[2], *anchor[2], *detail_path;
     int page[2], sort[2], historical, unsecured, fast, target_refresh, occurrence_page;
     int refresh_summary, detail_destination;
     int64_t detail_version;
+    DetailHistory detail_history;
 } ViewRequest;
 typedef struct {
     uint64_t serial;
@@ -103,6 +107,7 @@ typedef struct {
     int64_t total[2];
     Summary summary;
     char *details, *balance;
+    DetailHistory detail_history;
     Entry cycle;
 } ViewResult;
 typedef struct ViewService ViewService;
@@ -195,6 +200,7 @@ void entry_free(Entry *e);
 void entries_free(Entry *e, int n);
 char *entry_details(Catalog *c, const Entry *e);
 char *entry_details_page(Catalog *c, const Entry *e, int page);
+char *entry_details_view(Catalog *c, const Entry *e, int page, DetailHistory *history);
 int prepare_hash_groups(Catalog *c);
 void catalog_summary(Catalog *c, Summary *s);
 char *summary_text(Catalog *c);

@@ -1,5 +1,6 @@
 #include "gui_browser.h"
 #include "gui_controller.h"
+#include "gui_details.h"
 #include "gui_jobs.h"
 #include "gui_layout.h"
 #include "gui_navigation.h"
@@ -53,6 +54,7 @@ void gui_request_view(Gui *ui, unsigned flags)
                      .fast = gui_operation_busy(ui),
                      .target_refresh = ui->target_refresh,
                      .occurrence_page = ui->occurrence_page,
+                     .detail_history = ui->detail_history,
                      .detail_destination = ui->inspection_side == 0,
                      .detail_path = e ? e->path : "",
                      .detail_version = e ? e->version : 0};
@@ -204,6 +206,8 @@ void gui_apply_view(Gui *ui)
         if (r->details && !ui->help) {
             free(ui->details);
             ui->details = r->details;
+            ui->detail_history = r->detail_history;
+            gui_details_loaded(ui);
             r->details = NULL;
         }
         if (r->balance && ui->help == 2) {

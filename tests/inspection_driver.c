@@ -2,11 +2,12 @@
 #undef NDEBUG
 #include <assert.h>
 #include <stdlib.h>
+#include <string.h>
 #include <time.h>
 
 int main(int argc, char **argv)
 {
-    assert(argc == 4);
+    assert(argc == 4 || argc == 7);
     Catalog c;
     assert(!catalog_open(&c, NULL, argv[1], 1));
     ViewService *service = view_start(&c);
@@ -21,6 +22,12 @@ int main(int argc, char **argv)
      * when the right browser is in history mode and the source is disconnected. */
     view_submit(service, &request);
     request.detail_destination = 1;
+    if (argc == 7) {
+        request.detail_destination = strcmp(argv[4], "source") != 0;
+        request.historical = 0;
+        request.detail_history.expanded = atoi(argv[5]);
+        request.detail_history.page = atoi(argv[6]);
+    }
     uint64_t serial = view_submit(service, &request);
     int64_t start = monotonic_ns();
     for (;;) {
@@ -28,6 +35,10 @@ int main(int argc, char **argv)
         if (result && result->serial == serial && (result->flags & VIEW_DETAILS)) {
             assert(result->details);
             fputs(result->details, stdout);
+            if (argc == 7)
+                fprintf(stderr, "history expanded=%d page=%d available=%d more=%d\n",
+                        result->detail_history.expanded, result->detail_history.page,
+                        result->detail_history.available, result->detail_history.more);
             view_result_free(result);
             break;
         }

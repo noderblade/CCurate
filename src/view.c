@@ -299,8 +299,10 @@ static ViewResult *query(ViewService *s, ViewRequest *r)
             load_version(c, r->detail_path, version, &out->cycle);
     }
     if (!interrupted(s) && (r->flags & VIEW_DETAILS) && *r->detail_path) {
+        out->detail_history = r->detail_history;
         if (r->detail_destination) {
-            out->details = target_details_page(c, r->detail_path, r->occurrence_page);
+            out->details = target_details_view(c, r->detail_path, r->occurrence_page,
+                                               &out->detail_history);
             return out;
         }
         Entry e = {0};
@@ -308,7 +310,7 @@ static ViewResult *query(ViewService *s, ViewRequest *r)
                      ? load_version(c, r->detail_path, r->detail_version, &e)
                      : load_entry(c, r->detail_path, &e, r->historical);
         if (!rc) {
-            out->details = entry_details_page(c, &e, r->occurrence_page);
+            out->details = entry_details_view(c, &e, r->occurrence_page, &out->detail_history);
             entry_free(&e);
         }
     }
@@ -356,6 +358,8 @@ static void publish(ViewService *s, ViewResult *out)
             if (out->flags & VIEW_SUMMARY)
                 dest->summary = out->summary;
             if (out->details) {
+                free(dest->details);
+                dest->detail_history = out->detail_history;
                 dest->details = out->details;
                 out->details = NULL;
             }

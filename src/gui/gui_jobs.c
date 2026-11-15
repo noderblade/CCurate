@@ -32,10 +32,13 @@ void gui_request_preview(Gui *ui, int reset)
     if (reset) {
         ui->page = 0;
         ui->occurrence_page = 0;
+        ui->detail_history.page = 0;
+        ui->history_seek = 0;
         ui->preview_scroll = ui->details_scroll = 0;
         ui->preview_horizontal = ui->details_horizontal = 0;
     }
     ui->help = 0;
+    ui->detail_history.available = ui->detail_history.more = 0;
     free(ui->details);
     ui->details = xstrdup(e      ? "Loading details..."
                           : side ? "Select an entry in the source / history pane."

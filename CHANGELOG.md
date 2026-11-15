@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Show each source path once in content occurrences, including clearly labelled
+  historical-only links. Page distinct paths instead of individual metadata records.
+- Add expandable version changes to source/destination Details with buttons,
+  Preview menu actions, Ctrl+Shift+V and Ctrl+Shift+PgUp/PgDn. Compare recorded
+  SHA-512 content and metadata separately; display timestamp changes with nanoseconds
+  and UTC offset. Reuse existing catalogs without a rescan or format migration.
+
 - Use square corners across application-drawn panels, buttons, tabs, scrollbars,
   menus, dialogs and tooltips. Adapt build-directory copies of Raven geometry
   sources while preserving the vendored snapshot and licenses.

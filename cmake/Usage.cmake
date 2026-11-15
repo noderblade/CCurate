@@ -12,7 +12,7 @@ if(CCURATE_GUI)
   src/gui/gui_usage_render.c src/gui/gui_usage_chart.c src/gui/gui_usage_input.c)
 endif()
 add_executable(usagecheck tests/usage_driver.c ${CCURATE_USAGE_SOURCES}
- src/catalog.c src/util.c src/activity.c src/operations.c src/remove_target.c)
+ src/catalog.c src/content_details.c src/util.c src/activity.c src/operations.c src/remove_target.c)
 target_include_directories(usagecheck PRIVATE include)
 target_compile_definitions(usagecheck PRIVATE _GNU_SOURCE _FILE_OFFSET_BITS=64)
 target_compile_options(usagecheck PRIVATE -Wall -Wextra -Wformat=2 -Wshadow -Wmissing-prototypes -Wstrict-prototypes)

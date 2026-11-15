@@ -60,9 +60,9 @@ with tempfile.TemporaryDirectory(prefix='ccurate-inspection-') as temporary:
     digest = hashlib.sha512(content).hexdigest()
     assert digest[:64] + '\n' + digest[64:] in detail
     assert 'copy-001.txt' in detail and '[reviewed]' in detail
-    assert detail.count('(v') == 256 and 'More occurrences on the next page.' in detail
+    assert sum(line.startswith(('[OK] ', '[ ] ')) for line in detail.splitlines()) == 256 and 'More occurrences on the next page.' in detail
     last = inspect('curated/archive.txt', 1)
-    assert last.count('(v') == 14 and 'copy-269.txt' in last and '[rejected]' in last
+    assert sum(line.startswith(('[OK] ', '[ ] ')) for line in last.splitlines()) == 14 and 'copy-269.txt' in last and '[rejected]' in last
     assert 'No occurrences on this page.' in inspect('curated/archive.txt', 2)
     assert 'page 1;' in inspect('curated/archive.txt', -1)
     print('PASS destination metadata / indexed digest / paged provenance / offline source')

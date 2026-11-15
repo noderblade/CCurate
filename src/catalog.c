@@ -1,4 +1,5 @@
 #include "curator.h"
+#include "content_details.h"
 #include "source_access.h"
 #include "source_refresh.h"
 #include <dirent.h>
@@ -1340,8 +1341,9 @@ int list_entries(Catalog *c, const char *path, Entry **out, int historical, int 
 {
     return list_entries_page(c, path, out, historical, unsecured, search, 0, 0, 0, 0, NULL);
 }
-char *entry_details_page(Catalog *c, const Entry *e, int page)
+char *entry_details_view(Catalog *c, const Entry *e, int page, DetailHistory *history)
 {
+    history->available = history->more = 0;
     Buf b = {0};
     char *p = display_path(e->path), sz[40], mt[40], bt[40];
     human_bytes(e->size, sz);
@@ -1361,25 +1363,8 @@ char *entry_details_page(Catalog *c, const Entry *e, int page)
     if (!strcmp(e->kind, "file") && e->size == 0 && !e->pending)
         badd(&b, "\nEMPTY FILE: tracked individually with its own metadata and destination.\n"
                  "Empty files are excluded from content duplicate groups.\n");
-    if (*e->hash && e->size > 0) {
-        badd(&b, "\nCONTENT OCCURRENCES (page %d; Ctrl+Alt+PgUp/PgDn):\n", page + 1);
-        sqlite3_stmt *s = sql_prepare(
-            c, "SELECT e.path,e.present,e.discarded,v.accepted,v.id=e.current FROM versions v JOIN "
-               "entries e ON e.id=v.eid WHERE v.hash=? ORDER BY v.eid,v.id LIMIT 256 OFFSET ?");
-        bind_text(s, 1, e->hash);
-        sqlite3_bind_int64(s, 2, (int64_t)page * 256);
-        while (sqlite3_step(s) == SQLITE_ROW) {
-            p = display_path((char *)sqlite3_column_text(s, 0));
-            badd(&b, "%s %s%s%s%s\n",
-                 sqlite3_column_int(s, 3) && !strcmp(e->state, "verified") && *e->dest ? "[OK]"
-                                                                                       : "[ ]",
-                 p, sqlite3_column_int(s, 2) ? " [rejected]" : "",
-                 !sqlite3_column_int(s, 1) ? " [absent]" : "",
-                 !sqlite3_column_int(s, 4) ? " [older version]" : "");
-            free(p);
-        }
-        sqlite3_finalize(s);
-    }
+    if (*e->hash && e->size > 0)
+        content_occurrences(c, &b, e->hash, NULL, page);
     if (!strcmp(e->kind, "directory")) {
         badd(&b, "\nLOCATIONS OF RETAINED FILES IN THIS SUBTREE:\n");
         sqlite3_stmt *locations = sql_prepare(
@@ -1435,23 +1420,14 @@ char *entry_details_page(Catalog *c, const Entry *e, int page)
         }
         sqlite3_finalize(s);
     }
-    badd(&b, "\nRETAINED VERSIONS AT THIS PATH (Ctrl+V in history):\n");
-    s = sql_prepare(
-        c,
-        "SELECT v.id,v.mtime,COALESCE(z.dest,o.dest),v.mode FROM versions v LEFT JOIN objects o ON "
-        "o.hash=v.hash AND v.size>0 LEFT JOIN empty_copies z ON z.version=v.id WHERE v.eid=? "
-        "AND v.accepted=1 ORDER BY v.id DESC");
-    sqlite3_bind_int64(s, 1, e->id);
-    while (sqlite3_step(s) == SQLITE_ROW) {
-        date_text(sqlite3_column_int64(s, 1), mt);
-        p = display_path((char *)sqlite3_column_text(s, 2)   ? (char *)sqlite3_column_text(s, 2)
-                         : S_ISREG(sqlite3_column_int(s, 3)) ? "No destination copy"
-                                                             : "metadata");
-        badd(&b, "v%lld  %s  %s\n", (long long)sqlite3_column_int64(s, 0), mt, p);
-        free(p);
-    }
-    sqlite3_finalize(s);
+    content_version_history(c, &b, e->id, e->version, history);
     return b.s;
+}
+
+char *entry_details_page(Catalog *c, const Entry *e, int page)
+{
+    DetailHistory history = {.expanded = 1};
+    return entry_details_view(c, e, page, &history);
 }
 
 char *entry_details(Catalog *c, const Entry *e)

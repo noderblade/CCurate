@@ -64,6 +64,8 @@ struct Gui {
     uint64_t view_serial;
     unsigned view_dirty;
     int target_refresh, occurrence_page, filter_opener;
+    DetailHistory detail_history;
+    int history_seek, history_hover;
     ScanStatus scan;
     char *details, *message, *prompt_source;
     Preview preview;

@@ -4,6 +4,7 @@
 #include "gui_choices.h"
 #include "gui_columns.h"
 #include "gui_controller.h"
+#include "gui_details.h"
 #include "gui_fonts.h"
 #include "gui_jobs.h"
 #include "gui_layout.h"
@@ -93,6 +94,8 @@ int gui_handle_event(Gui *ui, const REvent *e)
     if (gui_tabs_event(ui, e))
         return 1;
     if (gui_usage_event(ui, e))
+        return 1;
+    if (gui_details_event(ui, e))
         return 1;
     if (gui_columns_event(ui, e))
         return 1;

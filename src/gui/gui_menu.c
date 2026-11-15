@@ -1,6 +1,7 @@
 #include "gui_menu.h"
 #include "gui_browser.h"
 #include "gui_controller.h"
+#include "gui_details.h"
 #include "gui_input.h"
 #include "gui_layout.h"
 #include "gui_render.h"
@@ -177,6 +178,13 @@ static const Action actions[] = {
     {4, "Next occurrences", "Ctrl+Alt+PgDn",
      "Show the next page of duplicate and historical source locations.", R_KEY_PAGE_DOWN,
      R_MOD_CTRL | R_MOD_ALT, NULL, 0},
+    {4, "Show / hide version history", "Ctrl+Shift+V",
+     "Compare recorded metadata and content changes for this source path (or the copied-from path).",
+     0, 0, "versions", 0},
+    {4, "Previous version-history page", "Ctrl+Shift+PgUp",
+     "Show newer catalog observations for this path.", 0, 0, "prevversions", 0},
+    {4, "Next version-history page", "Ctrl+Shift+PgDn",
+     "Show older catalog observations for this path.", 0, 0, "nextversions", 0},
     {4, "Next retained version", "Ctrl+V",
      "Cycle older retained content versions for the selected entry in history view.", R_KEY_V,
      R_MOD_CTRL, NULL, 0},
@@ -436,7 +444,9 @@ void gui_menu_paint(Gui *ui, RPainter *p)
     }
     if (!ui->menu) {
         const char *tip = NULL;
-        if (ui->column_hover || ui->column_drag)
+        if (gui_details_tip(ui))
+            tip = gui_details_tip(ui);
+        else if (ui->column_hover || ui->column_drag)
             tip =
                 "Drag to resize column | Double-click to fit visible rows | Ctrl+Alt+C: set width";
         else if (ui->splitter_hover)

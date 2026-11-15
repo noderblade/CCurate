@@ -72,6 +72,7 @@ build options; use `ctest --test-dir build -N` to list the configured cases.
 | Lazy refresh | `lazy_refresh.py`, `refresh_driver.c` | Existing/incomplete session resume, unchanged visits without data reads or catalog rewrites, direct-child scope, new/changed/absent paths, failed enumeration, cancellation and selected-subtree discovery before copy |
 | Navigation | `navigation_cache.py`, `navigation_driver.c` | First-page publication before recursive counts, parent anchors, bounded caches, invalidation, filter/sort separation and statistics independent of navigation |
 | Space estimates | `statistics.py` | Unique/repeated/empty content, rejections, retained old versions, missing sources, pending/UNSCANNED entries, incomplete traversal and corrupt destinations |
+| Version presentation | `content_history.py`, `inspection_driver.c` | One row per source path across pages, real metadata/content changes, exact timestamps, unknown hashes, historical/pending paths, independent empty files, offline read-only history and bounded version pages |
 | Destination inspection | `destination_inspection.py`, `inspection_driver.c` | Actual destination metadata, indexed source provenance, independent empty files, history and unindexed entries |
 | Removal | `removal.py`, `removal_faults.py` | Confirmation, fresh source/destination verification, refusal of unsafe or archived-only removal, recopy, independent empty files, staging collisions, hard kills and failed commits |
 | Disk Usage | `usage.py`, `usage_driver.c` | Subtree unions against an independent Python oracle, cross-branch duplicates, prefix-adjacent paths, unknown content, rejection scopes, offline use, bounded chart aggregation and unsafe cache files |
@@ -116,7 +117,7 @@ source drive. The larger optional measurements are documented below.
 | `gui_startup.py` | Graphical root selection, cancellation, root validation, offline browsing and session-open errors |
 | `gui_lazy_refresh.py` | Baseline startup, visited-folder updates, copy preemption and explicit full rehash |
 | `gui_removal.py` | Default Cancel, confirmation, focus restrictions, menus, F9, recopy and high-scale scrolling |
-| `gui_inspection.py` | Focused-pane preview bytes and details, including identical names with different source/destination contents |
+| `gui_inspection.py` | Focused-pane preview bytes and details, including identical names with different source/destination contents; history toggle, keyboard paging and mouse collapse without changing preview context |
 | `gui_usage.py` | Workspace isolation, tree/chart navigation, resizing, scope, columns and persisted state |
 | `gui_usage_rings.py` | Rendered sector fills and joined rings at depths 1, 2, 3 and 5, different scales and dark/light themes |
 
